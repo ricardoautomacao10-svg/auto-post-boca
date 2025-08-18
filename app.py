@@ -10,16 +10,13 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from base64 import b64encode
 
-# Importação para a API de Vídeo (Creatomate)
-import creatomate
-
 # ==============================================================================
 # BLOCO 2: CONFIGURAÇÃO INICIAL
 # ==============================================================================
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v2.0 (Creatomate)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v5.0 (Definitiva)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -48,7 +45,6 @@ CREATOMATE_API_KEY = os.getenv('CREATOMATE_API_KEY')
 CREATOMATE_TEMPLATE_ID = os.getenv('CREATOMATE_TEMPLATE_ID')
 if CREATOMATE_API_KEY and CREATOMATE_TEMPLATE_ID:
     print("✅ [CONFIG] Chave e Template ID do Creatomate carregados.")
-    creatomate.Client.api_key = CREATOMATE_API_KEY
 else:
     print("❌ [ERRO DE CONFIG] Faltando a chave ou o Template ID do Creatomate.")
 
@@ -61,38 +57,53 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
     if not CREATOMATE_API_KEY:
         return None
 
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {CREATOMATE_API_KEY}"
+    }
+    data = {
+        "template_id": CREATOMATE_TEMPLATE_ID,
+        "modifications": {
+            'Background-1.source': url_imagem_noticia,
+            'titulo-noticia.text': titulo_noticia.upper()
+        }
+    }
+
     try:
         print("    - Enviando requisição para a API de vídeo...")
+        response = requests.post("https://api.creatomate.com/v1/renders", json=data, headers=headers)
+        response.raise_for_status()
+        render_info_list = response.json()
         
-        # Monta as modificações para o seu template específico
-        modifications = {
-            # IMPORTANTE: O nome 'Background-1' deve ser EXATAMENTE o nome
-            # da camada da imagem de fundo no seu template do Creatomate.
-            'Background-1': url_imagem_noticia,
-            
-            # IMPORTANTE: O nome 'titulo-noticia' deve ser EXATAMENTE o nome
-            # da camada de texto no seu template do Creatomate.
-            'titulo-noticia': titulo_noticia.upper()
-        }
-        
-        renders = creatomate.render({
-            'template_id': CREATOMATE_TEMPLATE_ID,
-            'modifications': modifications,
-        })
-
-        print(f"    - Renderização iniciada. Aguardando...")
-        render_result = renders[0].wait()
-
-        if render_result.status == 'succeeded':
-            video_url = render_result.url
-            print(f"✅ [ETAPA 1/3] Vídeo criado com sucesso! URL: {video_url}")
-            return video_url
-        else:
-            print(f"❌ [ERRO] A renderização do vídeo falhou: {render_result.status_message}")
+        if not render_info_list:
+            print("❌ [ERRO] API do Creatomate não retornou informações de renderização.")
             return None
+        
+        render_info = render_info_list[0]
+        render_id = render_info.get('id')
+        
+        print(f"    - Renderização iniciada com ID: {render_id}. Aguardando...")
+        
+        for i in range(20):
+            status = render_info.get('status')
+            print(f"    - Tentativa {i+1}/20: Status atual: {status}")
+            if status == 'succeeded':
+                video_url = render_info.get('url')
+                print(f"✅ [ETAPA 1/3] Vídeo criado com sucesso! URL: {video_url}")
+                return video_url
+            elif status == 'failed':
+                print(f"❌ [ERRO] A renderização do vídeo falhou: {render_info.get('status_message')}")
+                return None
+            
+            time.sleep(10)
+            response = requests.get(f"https://api.creatomate.com/v1/renders?_id={render_id}", headers=headers)
+            render_info = response.json()[0]
+
+        print("❌ [ERRO] Tempo de espera para renderização do vídeo excedido.")
+        return None
 
     except Exception as e:
-        print(f"❌ [ERRO] Falha na comunicação com a API de vídeo Creatomate: {e}")
+        print(f"❌ [ERRO] Falha na comunicação com a API de vídeo Creatomate: {getattr(e, 'response', e)}")
         return None
 
 def publicar_reel_instagram(video_url, legenda):
@@ -181,7 +192,7 @@ def webhook_boca():
 
     print("\n🚀 INICIANDO FLUXO DE PUBLICAÇÃO DE REEL...")
     
-    url_do_video_pronto = criar_video_reel(url_imagem_noticia, titulo_noticia)
+    url_do_video_pronto = criar_video_reel(url_imagem_destaque, titulo_noticia)
     if not url_do_video_pronto: 
         return jsonify({"status": "erro_criacao_video"}), 500
     
@@ -208,7 +219,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v2.0 (Creatomate) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v5.0 (Definitiva) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
