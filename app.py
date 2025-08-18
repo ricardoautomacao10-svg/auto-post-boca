@@ -19,6 +19,10 @@ from shotstack_sdk.model.track import Track
 from shotstack_sdk.model.clip import Clip
 from shotstack_sdk.model.image_asset import ImageAsset
 from shotstack_sdk.model.title_asset import TitleAsset
+# ==========================================================
+# CORREÇÃO APLICADA AQUI: Importando o objeto 'Offset'
+# ==========================================================
+from shotstack_sdk.model.offset import Offset
 from shotstack_sdk.configuration import Configuration
 from shotstack_sdk.api_client import ApiClient
 
@@ -28,7 +32,7 @@ from shotstack_sdk.api_client import ApiClient
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.4 (Correção de Revisão)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.5 (Correção Final)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -78,7 +82,13 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia, url_logo_boca):
     title_asset = TitleAsset(text=titulo_noticia.upper(), style="minimal", color="#FFFFFF", background="#d90429", size="medium")
     clip_titulo = Clip(asset=title_asset, start=1.0, length=10.0, position="bottom")
     logo_asset = ImageAsset(src=url_logo_boca)
-    clip_logo = Clip(asset=logo_asset, start=0.5, length=11.0, position="topLeft", scale=0.3, offset={"x": -0.4, "y": -0.4})
+    
+    # ==========================================================
+    # CORREÇÃO APLICADA AQUI: Usando o objeto 'Offset'
+    # ==========================================================
+    logo_offset = Offset(x=-0.4, y=-0.4)
+    clip_logo = Clip(asset=logo_asset, start=0.5, length=11.0, position="topLeft", scale=0.3, offset=logo_offset)
+
     timeline = Timeline(tracks=[Track(clips=[clip_imagem]), Track(clips=[clip_titulo]), Track(clips=[clip_logo])])
     output = Output(format="mp4", resolution="1080")
     edit = Edit(timeline=timeline, output=output)
@@ -159,11 +169,6 @@ def webhook_boca():
     
     try:
         dados_brutos = request.json
-        print(f"🔍 [DEBUG] Dados recebidos: {json.dumps(dados_brutos, indent=2)}")
-
-        # ==========================================================
-        # CORREÇÃO PARA LIDAR COM REVISÕES
-        # ==========================================================
         post_info = dados_brutos.get('post', {})
         post_id = post_info.get('ID')
         post_type = post_info.get('post_type')
@@ -173,9 +178,7 @@ def webhook_boca():
             print(f"    - Detectada uma REVISÃO. Usando o ID do post principal: {post_parent}")
             post_id = post_parent
         elif not post_id:
-             # Fallback para o método antigo se a estrutura for diferente
              post_id = dados_brutos.get('post_id')
-        # ==========================================================
 
         if not post_id:
             raise ValueError("ID do post final não pôde ser determinado.")
@@ -233,7 +236,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v1.4 está no ar.", 200
+    return "Serviço de automação Boca No Trombone v1.5 está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
