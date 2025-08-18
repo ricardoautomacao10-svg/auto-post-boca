@@ -86,23 +86,30 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
         
         for i in range(20):
             time.sleep(10)
-            status_response = requests.get(f"https://api.creatomate.com/v1/renders?_id={render_id}", headers=headers)
+            
+            # ==========================================================
+            # CORREÇÃO À PROVA DE FALHAS: Usando o endpoint correto para verificar o status
+            # ==========================================================
+            status_response = requests.get("https://api.creatomate.com/v1/renders", headers=headers)
             status_response.raise_for_status()
             
-            render_info_list = status_response.json()
-            if not render_info_list:
+            render_list = status_response.json()
+            current_render_info = next((r for r in render_list if r.get('id') == render_id), None)
+            # ==========================================================
+
+            if not current_render_info:
+                print(f"    - Tentativa {i+1}/20: Ainda não encontrei o render ID. Tentando novamente...")
                 continue
 
-            render_info = render_info_list[0]
-            status = render_info.get('status')
+            status = current_render_info.get('status')
             print(f"    - Tentativa {i+1}/20: Status atual: {status}")
 
             if status == 'succeeded':
-                video_url = render_info.get('url')
+                video_url = current_render_info.get('url')
                 print(f"✅ [ETAPA 1/3] Vídeo criado com sucesso! URL: {video_url}")
                 return video_url
             elif status == 'failed':
-                print(f"❌ [ERRO] A renderização do vídeo falhou: {render_info.get('status_message')}")
+                print(f"❌ [ERRO] A renderização do vídeo falhou: {current_render_info.get('status_message')}")
                 return None
 
         print("❌ [ERRO] Tempo de espera para renderização do vídeo excedido.")
@@ -180,18 +187,13 @@ def webhook_boca():
         print(f"✅ [WEBHOOK BOCA] ID do post final para processar: {post_id}")
 
         url_api_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-        
-        # ==========================================================
-        # CORREÇÃO À PROVA DE FALHAS
-        # ==========================================================
         response_post = requests.get(url_api_post, headers=HEADERS_WP, timeout=15)
         if response_post.status_code != 200:
             print(f"    - ❌ ERRO: A API do WordPress respondeu com status {response_post.status_code}")
             print(f"    - Resposta recebida: {response_post.text}")
             raise ValueError(f"A API do WordPress não retornou sucesso (status: {response_post.status_code})")
         
-        post_data = response_post.json() # Agora esta linha é segura
-        # ==========================================================
+        post_data = response_post.json()
 
         titulo_noticia = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         id_imagem_destaque = post_data.get('featured_media')
