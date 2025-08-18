@@ -28,7 +28,7 @@ from shotstack_sdk.api_client import ApiClient
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.3 (Super Depuração)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.4 (Correção de Revisão)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -70,21 +70,15 @@ else:
 
 def criar_video_reel(url_imagem_noticia, titulo_noticia, url_logo_boca):
     print("🎬 [ETAPA 1/3] Iniciando criação do vídeo Reel...")
-    print(f"    - URL da Imagem: {url_imagem_noticia}")
-    print(f"    - Título: {titulo_noticia}")
     if not SHOTSTACK_API_KEY:
-        print("❌ [ERRO] API Key do Shotstack não configurada.")
         return None
 
     image_asset = ImageAsset(src=url_imagem_noticia)
     clip_imagem = Clip(asset=image_asset, start=0.0, length=12.0, effect="zoomIn")
-
     title_asset = TitleAsset(text=titulo_noticia.upper(), style="minimal", color="#FFFFFF", background="#d90429", size="medium")
     clip_titulo = Clip(asset=title_asset, start=1.0, length=10.0, position="bottom")
-
     logo_asset = ImageAsset(src=url_logo_boca)
     clip_logo = Clip(asset=logo_asset, start=0.5, length=11.0, position="topLeft", scale=0.3, offset={"x": -0.4, "y": -0.4})
-
     timeline = Timeline(tracks=[Track(clips=[clip_imagem]), Track(clips=[clip_titulo]), Track(clips=[clip_logo])])
     output = Output(format="mp4", resolution="1080")
     edit = Edit(timeline=timeline, output=output)
@@ -96,11 +90,10 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia, url_logo_boca):
         print(f"    - Renderização iniciada com ID: {render_id}")
 
         print("    - Aguardando finalização do vídeo...")
-        for i in range(20): # Tenta por até 200 segundos (mais de 3 minutos)
+        for i in range(20):
             status_response = api_instance.get_render(render_id)
             status = status_response['response']['status']
             print(f"    - Tentativa {i+1}/20: Status atual: {status.upper()}")
-
             if status == "done":
                 video_url = status_response['response']['url']
                 print(f"✅ [ETAPA 1/3] Vídeo criado com sucesso! URL: {video_url}")
@@ -108,58 +101,39 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia, url_logo_boca):
             elif status in ["failed", "cancelled"]:
                 print("❌ [ERRO] A renderização do vídeo falhou.")
                 return None
-            
             time.sleep(10)
-        
         print("❌ [ERRO] Tempo de espera para renderização do vídeo excedido.")
         return None
-
     except Exception as e:
         print(f"❌ [ERRO] Falha na comunicação com a API de vídeo: {e}")
         return None
 
 def publicar_reel_instagram(video_url, legenda):
     print("📤 [ETAPA 2/3] Publicando Reel no Instagram...")
-    id_criacao = None
     try:
-        print("    - 1/2: Criando contêiner de mídia...")
         url_container = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_BOCA}/media"
         params_container = {'media_type': 'REELS', 'video_url': video_url, 'caption': legenda, 'access_token': META_API_TOKEN_BOCA}
         r_container = requests.post(url_container, params=params_container, timeout=30)
-        print(f"    - Resposta da criação do contêiner: {r_container.text}")
         r_container.raise_for_status()
         id_criacao = r_container.json()['id']
-    except Exception as e:
-        print(f"❌ [ERRO] Falha ao criar contêiner do Reel: {getattr(e, 'response', e)}")
-        return False
-
-    if not id_criacao:
-        print("❌ [ERRO] Não foi possível obter o ID de criação do contêiner.")
-        return False
-
-    try:
-        print(f"    - 2/2: Aguardando e publicando o contêiner ID: {id_criacao}...")
+        
         for i in range(15):
             r_status = requests.get(f"https://graph.facebook.com/v19.0/{id_criacao}?fields=status_code", params={'access_token': META_API_TOKEN_BOCA})
             status = r_status.json().get('status_code')
             print(f"    - Tentativa {i+1}/15: Status do contêiner: {status}")
-            if status == 'FINISHED': break
+            if status == 'FINISHED':
+                url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_BOCA}/media_publish"
+                params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN_BOCA}
+                r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=30)
+                r_publish.raise_for_status()
+                print("✅ [ETAPA 2/3] Reel publicado no Instagram com sucesso!")
+                return True
             time.sleep(10)
         
-        if status != 'FINISHED':
-             print("❌ [ERRO] Contêiner não ficou pronto a tempo.")
-             return False
-
-        url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_BOCA}/media_publish"
-        params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN_BOCA}
-        r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=30)
-        print(f"    - Resposta da publicação: {r_publish.text}")
-        r_publish.raise_for_status()
-        
-        print("✅ [ETAPA 2/3] Reel publicado no Instagram com sucesso!")
-        return True
+        print("❌ [ERRO] Contêiner não ficou pronto a tempo.")
+        return False
     except Exception as e:
-        print(f"❌ [ERRO] Falha ao publicar contêiner do Reel: {getattr(e, 'response', e)}")
+        print(f"❌ [ERRO] Falha na publicação do Reel: {getattr(e, 'response', e)}")
         return False
 
 def publicar_video_facebook(video_url, legenda):
@@ -168,7 +142,6 @@ def publicar_video_facebook(video_url, legenda):
         url_post_video = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID_BOCA}/videos"
         params = {'file_url': video_url, 'description': legenda, 'access_token': META_API_TOKEN_BOCA}
         r = requests.post(url_post_video, params=params, timeout=60)
-        print(f"    - Resposta da publicação no Facebook: {r.text}")
         r.raise_for_status()
         print("✅ [ETAPA 3/3] Vídeo publicado no Facebook com sucesso!")
         return True
@@ -186,18 +159,28 @@ def webhook_boca():
     
     try:
         dados_brutos = request.json
-        print(f"🔍 [DEBUG] Dados recebidos: {json.dumps(dados_brutos)}")
+        print(f"🔍 [DEBUG] Dados recebidos: {json.dumps(dados_brutos, indent=2)}")
 
-        post_id = None
-        if isinstance(dados_brutos, dict):
-            post_id = dados_brutos.get('post_id') or dados_brutos.get('ID') or dados_brutos.get('id')
-        elif isinstance(dados_brutos, list) and dados_brutos:
-            post_id = dados_brutos[0].get('post_id') or dados_brutos[0].get('ID') or dados_brutos[0].get('id')
+        # ==========================================================
+        # CORREÇÃO PARA LIDAR COM REVISÕES
+        # ==========================================================
+        post_info = dados_brutos.get('post', {})
+        post_id = post_info.get('ID')
+        post_type = post_info.get('post_type')
+        post_parent = post_info.get('post_parent')
+
+        if post_type == 'revision' and post_parent:
+            print(f"    - Detectada uma REVISÃO. Usando o ID do post principal: {post_parent}")
+            post_id = post_parent
+        elif not post_id:
+             # Fallback para o método antigo se a estrutura for diferente
+             post_id = dados_brutos.get('post_id')
+        # ==========================================================
 
         if not post_id:
-            raise ValueError("ID do post não encontrado no webhook.")
+            raise ValueError("ID do post final não pôde ser determinado.")
 
-        print(f"✅ [WEBHOOK BOCA] ID do post extraído: {post_id}")
+        print(f"✅ [WEBHOOK BOCA] ID do post final para processar: {post_id}")
 
         url_api_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
         post_data = requests.get(url_api_post, headers=HEADERS_WP, timeout=15).json()
@@ -207,8 +190,8 @@ def webhook_boca():
         
         url_logo_boca = "https://jornalvozdolitoral.com/wp-content/uploads/2024/04/boca-no-trombone-2-1.png"
 
-        if not id_imagem_destaque:
-            print("❌ [ERRO] Post não tem imagem de destaque. Abortando.")
+        if not id_imagem_destaque or id_imagem_destaque == 0:
+            print("❌ [ERRO] Post principal não tem imagem de destaque. Abortando.")
             return jsonify({"status": "erro_sem_imagem"}), 400
         
         media_data = requests.get(f"{WP_URL}/wp-json/wp/v2/media/{id_imagem_destaque}", headers=HEADERS_WP, timeout=15).json()
@@ -250,7 +233,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v1.3 está no ar.", 200
+    return "Serviço de automação Boca No Trombone v1.4 está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
