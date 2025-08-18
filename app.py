@@ -1,5 +1,5 @@
 # ==============================================================================
-# BLOCO 1: IMPORTAÇÕES (COM A CORREÇÃO)
+# BLOCO 1: IMPORTAÇÕES
 # ==============================================================================
 import os
 import time
@@ -16,7 +16,6 @@ from shotstack_sdk.model.output import Output
 from shotstack_sdk.model.timeline import Timeline
 from shotstack_sdk.model.track import Track
 from shotstack_sdk.model.clip import Clip
-# CORREÇÃO APLICADA NAS DUAS LINHAS ABAIXO
 from shotstack_sdk.model.image_asset import ImageAsset
 from shotstack_sdk.model.title_asset import TitleAsset
 from shotstack_sdk.configuration import Configuration
@@ -28,7 +27,7 @@ from shotstack_sdk.api_client import ApiClient
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.1 (Reels)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.2 (Reels)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -175,8 +174,24 @@ def webhook_boca():
     
     try:
         dados_brutos = request.json
-        post_id = dados_brutos[0].get('post_id') if isinstance(dados_brutos, list) else dados_brutos.get('post_id')
-        if not post_id: raise ValueError("ID do post não encontrado no webhook.")
+        print(f"🔍 [DEBUG] Dados recebidos: {json.dumps(dados_brutos)}") # Linha de debug para ver os dados
+
+        # ==========================================================
+        # CORREÇÃO APLICADA AQUI
+        # ==========================================================
+        post_id = None
+        if isinstance(dados_brutos, dict):
+            # Tenta encontrar 'post_id', 'ID', ou 'id' no dicionário principal
+            post_id = dados_brutos.get('post_id') or dados_brutos.get('ID') or dados_brutos.get('id')
+        elif isinstance(dados_brutos, list) and dados_brutos:
+            # Se for uma lista, tenta encontrar no primeiro item
+            post_id = dados_brutos[0].get('post_id') or dados_brutos[0].get('ID') or dados_brutos[0].get('id')
+        # ==========================================================
+
+        if not post_id:
+            raise ValueError("ID do post não encontrado no webhook.")
+
+        print(f"✅ [WEBHOOK BOCA] ID do post extraído: {post_id}")
 
         url_api_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
         post_data = requests.get(url_api_post, headers=HEADERS_WP, timeout=15).json()
@@ -184,7 +199,7 @@ def webhook_boca():
         titulo_noticia = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         id_imagem_destaque = post_data.get('featured_media')
         
-        url_logo_boca = "https://jornalvozdolitoral.com/wp-content/uploads/2024/04/boca-no-trombone-2-1.png" # <<< ALTERE AQUI SE NECESSÁRIO
+        url_logo_boca = "https://jornalvozdolitoral.com/wp-content/uploads/2024/04/boca-no-trombone-2-1.png"
 
         if not id_imagem_destaque:
             return jsonify({"status": "erro_sem_imagem"}), 400
@@ -225,7 +240,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v1.1 está no ar.", 200
+    return "Serviço de automação Boca No Trombone v1.2 está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
