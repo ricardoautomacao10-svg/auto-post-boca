@@ -16,7 +16,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v7.0 (Finalíssima)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v8.0 (Final)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -85,14 +85,12 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
         print(f"    - Renderização iniciada com ID: {render_id}. Aguardando...")
         
         for i in range(20):
-            time.sleep(10) # Espera 10 segundos antes de verificar
-            
+            time.sleep(10)
             status_response = requests.get(f"https://api.creatomate.com/v1/renders?_id={render_id}", headers=headers)
             status_response.raise_for_status()
             
             render_info_list = status_response.json()
             if not render_info_list:
-                print(f"    - Tentativa {i+1}/20: API não retornou informações para o render ID. Tentando novamente...")
                 continue
 
             render_info = render_info_list[0]
@@ -228,7 +226,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v7.0 (Finalíssima) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v8.0 (Final) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
