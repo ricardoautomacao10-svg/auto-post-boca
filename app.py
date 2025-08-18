@@ -1,5 +1,5 @@
 # ==============================================================================
-# BLOCO 1: IMPORTAÇÕES (FINALMENTE CORRIGIDO)
+# BLOCO 1: IMPORTAÇÕES
 # ==============================================================================
 import os
 import time
@@ -16,7 +16,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v6.0 (Final Corrigido)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v7.0 (Finalíssima)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -85,8 +85,20 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
         print(f"    - Renderização iniciada com ID: {render_id}. Aguardando...")
         
         for i in range(20):
+            time.sleep(10) # Espera 10 segundos antes de verificar
+            
+            status_response = requests.get(f"https://api.creatomate.com/v1/renders?_id={render_id}", headers=headers)
+            status_response.raise_for_status()
+            
+            render_info_list = status_response.json()
+            if not render_info_list:
+                print(f"    - Tentativa {i+1}/20: API não retornou informações para o render ID. Tentando novamente...")
+                continue
+
+            render_info = render_info_list[0]
             status = render_info.get('status')
             print(f"    - Tentativa {i+1}/20: Status atual: {status}")
+
             if status == 'succeeded':
                 video_url = render_info.get('url')
                 print(f"✅ [ETAPA 1/3] Vídeo criado com sucesso! URL: {video_url}")
@@ -94,16 +106,13 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
             elif status == 'failed':
                 print(f"❌ [ERRO] A renderização do vídeo falhou: {render_info.get('status_message')}")
                 return None
-            
-            time.sleep(10)
-            response = requests.get(f"https://api.creatomate.com/v1/renders?_id={render_id}", headers=headers)
-            render_info = response.json()[0]
 
         print("❌ [ERRO] Tempo de espera para renderização do vídeo excedido.")
         return None
 
     except Exception as e:
-        print(f"❌ [ERRO] Falha na comunicação com a API de vídeo Creatomate: {getattr(e, 'response', e)}")
+        print(f"❌ [ERRO] Falha na comunicação com a API de vídeo Creatomate. Erro: {e}")
+        if hasattr(e, 'response'): print(f"    - Resposta da API: {e.response.text}")
         return None
 
 def publicar_reel_instagram(video_url, legenda):
@@ -116,6 +125,7 @@ def publicar_reel_instagram(video_url, legenda):
         id_criacao = r_container.json()['id']
         
         for i in range(15):
+            time.sleep(10)
             r_status = requests.get(f"https://graph.facebook.com/v19.0/{id_criacao}?fields=status_code", params={'access_token': META_API_TOKEN_BOCA})
             status = r_status.json().get('status_code')
             print(f"    - Tentativa {i+1}/15: Status do contêiner: {status}")
@@ -126,7 +136,6 @@ def publicar_reel_instagram(video_url, legenda):
                 r_publish.raise_for_status()
                 print("✅ [ETAPA 2/3] Reel publicado no Instagram com sucesso!")
                 return True
-            time.sleep(10)
         
         print("❌ [ERRO] Contêiner não ficou pronto a tempo.")
         return False
@@ -219,7 +228,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v6.0 (Final Corrigido) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v7.0 (Finalíssima) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
