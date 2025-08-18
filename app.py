@@ -1,5 +1,5 @@
 # ==============================================================================
-# BLOCO 1: IMPORTAÇÕES
+# BLOCO 1: IMPORTAÇÕES (COM A CORREÇÃO)
 # ==============================================================================
 import os
 import time
@@ -16,8 +16,9 @@ from shotstack_sdk.model.output import Output
 from shotstack_sdk.model.timeline import Timeline
 from shotstack_sdk.model.track import Track
 from shotstack_sdk.model.clip import Clip
-from shotstack_sdk.model.asset.image_asset import ImageAsset
-from shotstack_sdk.model.asset.title_asset import TitleAsset
+# CORREÇÃO APLICADA NAS DUAS LINHAS ABAIXO
+from shotstack_sdk.model.image_asset import ImageAsset
+from shotstack_sdk.model.title_asset import TitleAsset
 from shotstack_sdk.configuration import Configuration
 from shotstack_sdk.api_client import ApiClient
 
@@ -27,7 +28,7 @@ from shotstack_sdk.api_client import ApiClient
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.0 (Reels)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v1.1 (Reels)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -183,7 +184,7 @@ def webhook_boca():
         titulo_noticia = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         id_imagem_destaque = post_data.get('featured_media')
         
-        url_logo_boca = "URL_DO_SEU_LOGO_BOCA_NO_TROMBONE.png" # <<< ALTERE AQUI
+        url_logo_boca = "https://jornalvozdolitoral.com/wp-content/uploads/2024/04/boca-no-trombone-2-1.png" # <<< ALTERE AQUI SE NECESSÁRIO
 
         if not id_imagem_destaque:
             return jsonify({"status": "erro_sem_imagem"}), 400
@@ -224,7 +225,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v1.0 está no ar.", 200
+    return "Serviço de automação Boca No Trombone v1.1 está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
