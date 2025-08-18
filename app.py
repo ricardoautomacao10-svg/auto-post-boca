@@ -1,5 +1,5 @@
 # ==============================================================================
-# BLOCO 1: IMPORTAÇÕES
+# BLOCO 1: IMPORTAÇÕES (FINALMENTE CORRIGIDO)
 # ==============================================================================
 import os
 import time
@@ -16,7 +16,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v5.0 (Definitiva)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v6.0 (Final Corrigido)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -219,7 +219,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v5.0 (Definitiva) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v6.0 (Final Corrigido) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
