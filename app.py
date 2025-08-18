@@ -16,7 +16,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v9.0 (À Prova de Falhas)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v11.0 (Final Automatizado)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -79,28 +79,23 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
             print("❌ [ERRO] API do Creatomate não retornou informações de renderização.")
             return None
         
-        render_info = render_info_list[0]
-        render_id = render_info.get('id')
-        
+        render_id = render_info_list[0].get('id')
         print(f"    - Renderização iniciada com ID: {render_id}. Aguardando...")
         
         for i in range(20):
             time.sleep(10)
             
-            # ==========================================================
-            # CORREÇÃO À PROVA DE FALHAS: Usando o endpoint correto para verificar o status
-            # ==========================================================
-            status_response = requests.get("https://api.creatomate.com/v1/renders", headers=headers)
+            # CORREÇÃO FINAL: Usa o endpoint correto com 'query='
+            status_url = f"https://api.creatomate.com/v1/renders?query=_id={render_id}"
+            status_response = requests.get(status_url, headers=headers)
             status_response.raise_for_status()
             
             render_list = status_response.json()
-            current_render_info = next((r for r in render_list if r.get('id') == render_id), None)
-            # ==========================================================
-
-            if not current_render_info:
+            if not render_list:
                 print(f"    - Tentativa {i+1}/20: Ainda não encontrei o render ID. Tentando novamente...")
                 continue
 
+            current_render_info = render_list[0]
             status = current_render_info.get('status')
             print(f"    - Tentativa {i+1}/20: Status atual: {status}")
 
@@ -188,12 +183,17 @@ def webhook_boca():
 
         url_api_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
         response_post = requests.get(url_api_post, headers=HEADERS_WP, timeout=15)
-        if response_post.status_code != 200:
-            print(f"    - ❌ ERRO: A API do WordPress respondeu com status {response_post.status_code}")
-            print(f"    - Resposta recebida: {response_post.text}")
-            raise ValueError(f"A API do WordPress não retornou sucesso (status: {response_post.status_code})")
         
+        if response_post.status_code == 404:
+            print(f"    - ⚠️ AVISO: Post ID {post_id} não encontrado ou não está publicado. Ignorando.")
+            return jsonify({"status": "post_nao_encontrado"}), 200
+        
+        response_post.raise_for_status()
         post_data = response_post.json()
+
+        if post_data.get('status') != 'publish':
+            print(f"    - ⚠️ AVISO: Post ID {post_id} não está com status 'publish' (status atual: {post_data.get('status')}). Ignorando.")
+            return jsonify({"status": "post_nao_publicado"}), 200
 
         titulo_noticia = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         id_imagem_destaque = post_data.get('featured_media')
@@ -241,7 +241,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v9.0 (À Prova de Falhas) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v11.0 (Final Automatizado) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
