@@ -16,7 +16,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v8.0 (Final)")
+print("🚀 INICIANDO APLICAÇÃO BOCA NO TROMBONE v9.0 (À Prova de Falhas)")
 
 # --- Configs do WordPress ---
 WP_URL = os.getenv('WP_URL')
@@ -180,17 +180,30 @@ def webhook_boca():
         print(f"✅ [WEBHOOK BOCA] ID do post final para processar: {post_id}")
 
         url_api_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-        post_data = requests.get(url_api_post, headers=HEADERS_WP, timeout=15).json()
+        
+        # ==========================================================
+        # CORREÇÃO À PROVA DE FALHAS
+        # ==========================================================
+        response_post = requests.get(url_api_post, headers=HEADERS_WP, timeout=15)
+        if response_post.status_code != 200:
+            print(f"    - ❌ ERRO: A API do WordPress respondeu com status {response_post.status_code}")
+            print(f"    - Resposta recebida: {response_post.text}")
+            raise ValueError(f"A API do WordPress não retornou sucesso (status: {response_post.status_code})")
+        
+        post_data = response_post.json() # Agora esta linha é segura
+        # ==========================================================
 
         titulo_noticia = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         id_imagem_destaque = post_data.get('featured_media')
 
         if not id_imagem_destaque or id_imagem_destaque == 0:
+            print("❌ [ERRO] Post principal não tem imagem de destaque. Abortando.")
             return jsonify({"status": "erro_sem_imagem"}), 400
         
         media_data = requests.get(f"{WP_URL}/wp-json/wp/v2/media/{id_imagem_destaque}", headers=HEADERS_WP, timeout=15).json()
         url_imagem_destaque = media_data.get('source_url')
         if not url_imagem_destaque:
+             print("❌ [ERRO] Não foi possível obter a URL da imagem de destaque. Abortando.")
              return jsonify({"status": "erro_url_imagem"}), 400
             
     except Exception as e:
@@ -226,7 +239,7 @@ def webhook_boca():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Boca No Trombone v8.0 (Final) está no ar.", 200
+    return "Serviço de automação Boca No Trombone v9.0 (À Prova de Falhas) está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
