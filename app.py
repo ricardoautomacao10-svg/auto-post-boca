@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from base64 import b64encode
 
-# NOVA IMPORTAÇÃO para a API de Vídeo (Creatomate)
+# Importação para a API de Vídeo (Creatomate)
 import creatomate
 
 # ==============================================================================
@@ -43,7 +43,7 @@ if all([META_API_TOKEN_BOCA, INSTAGRAM_ID_BOCA, FACEBOOK_PAGE_ID_BOCA]):
 else:
     print("❌ [ERRO DE CONFIG] Faltando variáveis do Boca No Trombone.")
 
-# --- NOVA CONFIG do Creatomate (API de Vídeo) ---
+# --- CONFIG do Creatomate (API de Vídeo) ---
 CREATOMATE_API_KEY = os.getenv('CREATOMATE_API_KEY')
 CREATOMATE_TEMPLATE_ID = os.getenv('CREATOMATE_TEMPLATE_ID')
 if CREATOMATE_API_KEY and CREATOMATE_TEMPLATE_ID:
@@ -63,23 +63,24 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
 
     try:
         print("    - Enviando requisição para a API de vídeo...")
-        source = creatomate.Source(
-            output_format='mp4',
-            # Modificações no seu template
-            modifications={
-                'imagem-noticia': url_imagem_noticia,
-                'titulo-noticia': titulo_noticia.upper()
-            }
-        )
+        
+        # Monta as modificações para o seu template específico
+        modifications = {
+            # IMPORTANTE: O nome 'Background-1' deve ser EXATAMENTE o nome
+            # da camada da imagem de fundo no seu template do Creatomate.
+            'Background-1': url_imagem_noticia,
+            
+            # IMPORTANTE: O nome 'titulo-noticia' deve ser EXATAMENTE o nome
+            # da camada de texto no seu template do Creatomate.
+            'titulo-noticia': titulo_noticia.upper()
+        }
         
         renders = creatomate.render({
             'template_id': CREATOMATE_TEMPLATE_ID,
-            'source': source,
+            'modifications': modifications,
         })
 
         print(f"    - Renderização iniciada. Aguardando...")
-        
-        # Espera o vídeo ficar pronto (pode demorar)
         render_result = renders[0].wait()
 
         if render_result.status == 'succeeded':
@@ -94,8 +95,46 @@ def criar_video_reel(url_imagem_noticia, titulo_noticia):
         print(f"❌ [ERRO] Falha na comunicação com a API de vídeo Creatomate: {e}")
         return None
 
-# ... (O resto do código, como as funções publicar_reel_instagram e publicar_video_facebook, permanece EXATAMENTE O MESMO) ...
-# ... (A função webhook_boca também permanece a mesma, apenas a chamada a criar_video_reel não precisa mais do logo) ...
+def publicar_reel_instagram(video_url, legenda):
+    print("📤 [ETAPA 2/3] Publicando Reel no Instagram...")
+    try:
+        url_container = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_BOCA}/media"
+        params_container = {'media_type': 'REELS', 'video_url': video_url, 'caption': legenda, 'access_token': META_API_TOKEN_BOCA}
+        r_container = requests.post(url_container, params=params_container, timeout=30)
+        r_container.raise_for_status()
+        id_criacao = r_container.json()['id']
+        
+        for i in range(15):
+            r_status = requests.get(f"https://graph.facebook.com/v19.0/{id_criacao}?fields=status_code", params={'access_token': META_API_TOKEN_BOCA})
+            status = r_status.json().get('status_code')
+            print(f"    - Tentativa {i+1}/15: Status do contêiner: {status}")
+            if status == 'FINISHED':
+                url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_BOCA}/media_publish"
+                params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN_BOCA}
+                r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=30)
+                r_publish.raise_for_status()
+                print("✅ [ETAPA 2/3] Reel publicado no Instagram com sucesso!")
+                return True
+            time.sleep(10)
+        
+        print("❌ [ERRO] Contêiner não ficou pronto a tempo.")
+        return False
+    except Exception as e:
+        print(f"❌ [ERRO] Falha na publicação do Reel: {getattr(e, 'response', e)}")
+        return False
+
+def publicar_video_facebook(video_url, legenda):
+    print("📤 [ETAPA 3/3] Publicando vídeo no Facebook...")
+    try:
+        url_post_video = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID_BOCA}/videos"
+        params = {'file_url': video_url, 'description': legenda, 'access_token': META_API_TOKEN_BOCA}
+        r = requests.post(url_post_video, params=params, timeout=60)
+        r.raise_for_status()
+        print("✅ [ETAPA 3/3] Vídeo publicado no Facebook com sucesso!")
+        return True
+    except Exception as e:
+        print(f"❌ [ERRO] Falha ao publicar vídeo no Facebook: {getattr(e, 'response', e)}")
+        return False
 
 # ==============================================================================
 # BLOCO 4: O MAESTRO (RECEPTOR DO WEBHOOK)
@@ -106,7 +145,6 @@ def webhook_boca():
     print("🔔 [WEBHOOK BOCA] Webhook recebido!")
     
     try:
-        # ... (código de extração de dados do WordPress - sem alterações) ...
         dados_brutos = request.json
         post_info = dados_brutos.get('post', {})
         post_id = post_info.get('ID')
@@ -143,12 +181,10 @@ def webhook_boca():
 
     print("\n🚀 INICIANDO FLUXO DE PUBLICAÇÃO DE REEL...")
     
-    # A chamada agora é mais simples
-    url_do_video_pronto = criar_video_reel(url_imagem_destaque, titulo_noticia)
+    url_do_video_pronto = criar_video_reel(url_imagem_noticia, titulo_noticia)
     if not url_do_video_pronto: 
         return jsonify({"status": "erro_criacao_video"}), 500
     
-    # ... (resto do código para criar legenda e publicar - sem alterações) ...
     legenda_boca = (
         f"🗣️ BOCA NO TROMBONE!\n\n"
         f"{titulo_noticia.upper()}\n\n"
@@ -167,7 +203,9 @@ def webhook_boca():
         print("😭 [FALHA] Nenhuma publicação de Reel foi bem-sucedida.")
         return jsonify({"status": "erro_publicacao_redes_boca"}), 500
 
-# ... (O resto do código de inicialização é o mesmo) ...
+# ==============================================================================
+# BLOCO 5: INICIALIZAÇÃO
+# ==============================================================================
 @app.route('/')
 def health_check():
     return "Serviço de automação Boca No Trombone v2.0 (Creatomate) está no ar.", 200
