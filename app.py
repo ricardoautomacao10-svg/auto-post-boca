@@ -18,7 +18,7 @@ from base64 import b64encode
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO APLICAÇÃO DE AUTOMAÇÃO v2.5 (Encaminhamento Robusto)")
+print("🚀 INICIANDO APLICAÇÃO DE AUTOMAÇÃO v3.0 (Voz do Litoral - Final)")
 
 # Configs da Imagem
 IMG_WIDTH, IMG_HEIGHT = 1080, 1080
@@ -36,19 +36,22 @@ else:
     print("❌ [ERRO DE CONFIG] Faltando variáveis de ambiente do WordPress.")
     HEADERS_WP = {}
 
-# Configs da API do Meta (Facebook/Instagram)
-META_API_TOKEN = os.getenv('META_API_TOKEN')
-INSTAGRAM_ID = os.getenv('INSTAGRAM_ID')
-FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID')
-if all([META_API_TOKEN, INSTAGRAM_ID, FACEBOOK_PAGE_ID]):
-    print("✅ [CONFIG] Variáveis do Facebook/Instagram carregadas.")
+# ==============================================================================
+# CORREÇÃO: Usando nomes de variáveis específicos para o Voz do Litoral
+# ==============================================================================
+META_API_TOKEN_VOZ = os.getenv('META_API_TOKEN_VOZ')
+INSTAGRAM_ID_VOZ = os.getenv('INSTAGRAM_ID_VOZ')
+FACEBOOK_PAGE_ID_VOZ = os.getenv('FACEBOOK_PAGE_ID_VOZ')
+if all([META_API_TOKEN_VOZ, INSTAGRAM_ID_VOZ, FACEBOOK_PAGE_ID_VOZ]):
+    print("✅ [CONFIG] Variáveis do Voz do Litoral carregadas.")
 else:
-    print("⚠️ [AVISO DE CONFIG] Faltando uma ou mais variáveis do Meta.")
+    print("⚠️ [AVISO DE CONFIG] Faltando uma ou mais variáveis do Voz do Litoral.")
 
 # ==============================================================================
 # BLOCO 3: FUNÇÕES AUXILIARES
 # ==============================================================================
 def criar_imagem_post(url_imagem, titulo_post, url_logo):
+    # ... (Esta função não precisa de alterações)
     print("🎨 [ETAPA 1/4] Iniciando criação da imagem...")
     try:
         response_img = requests.get(url_imagem, stream=True, timeout=15); response_img.raise_for_status()
@@ -95,13 +98,14 @@ def criar_imagem_post(url_imagem, titulo_post, url_logo):
         return None
 
 def upload_para_wordpress(bytes_imagem, nome_arquivo):
+    # ... (Esta função não precisa de alterações)
     print(f"⬆️  [ETAPA 2/4] Fazendo upload para o WordPress...")
     try:
         url_wp_media = f"{WP_URL}/wp-json/wp/v2/media"
         headers_upload = HEADERS_WP.copy()
         headers_upload['Content-Disposition'] = f'attachment; filename={nome_arquivo}'
         headers_upload['Content-Type'] = 'image/jpeg'
-        response = requests.post(url_wp_media, headers=headers_upload, data=bytes_imagem, timeout=30)
+        response = requests.post(url_wp_media, headers_upload, data=bytes_imagem, timeout=30)
         response.raise_for_status()
         link_imagem_publica = response.json()['source_url']
         print(f"✅ [ETAPA 2/4] Imagem salva no WordPress!")
@@ -111,22 +115,22 @@ def upload_para_wordpress(bytes_imagem, nome_arquivo):
         return None
 
 def publicar_no_instagram(url_imagem, legenda):
-    print("📤 [ETAPA 3/4] Publicando no Instagram...")
-    if not all([META_API_TOKEN, INSTAGRAM_ID]): 
+    print("📤 [ETAPA 3/4] Publicando no Instagram (Voz)...")
+    if not all([META_API_TOKEN_VOZ, INSTAGRAM_ID_VOZ]): 
         return False
     try:
-        url_container = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID}/media"
-        params_container = {'image_url': url_imagem, 'caption': legenda, 'access_token': META_API_TOKEN}
+        url_container = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_VOZ}/media"
+        params_container = {'image_url': url_imagem, 'caption': legenda, 'access_token': META_API_TOKEN_VOZ}
         r_container = requests.post(url_container, params=params_container, timeout=20)
         r_container.raise_for_status()
         id_criacao = r_container.json()['id']
         
-        url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID}/media_publish"
-        params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN}
+        url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID_VOZ}/media_publish"
+        params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN_VOZ}
         r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=20)
         r_publish.raise_for_status()
         
-        print("✅ [ETAPA 3/4] Post publicado no Instagram com sucesso!")
+        print("✅ [ETAPA 3/4] Post publicado no Instagram (Voz) com sucesso!")
         return True
     except Exception as e:
         print(f"❌ [ERRO INSTAGRAM] Falha ao publicar: {e}")
@@ -134,15 +138,15 @@ def publicar_no_instagram(url_imagem, legenda):
         return False
 
 def publicar_no_facebook(url_imagem, legenda):
-    print("📤 [ETAPA 4/4] Publicando no Facebook...")
-    if not all([META_API_TOKEN, FACEBOOK_PAGE_ID]): 
+    print("📤 [ETAPA 4/4] Publicando no Facebook (Voz)...")
+    if not all([META_API_TOKEN_VOZ, FACEBOOK_PAGE_ID_VOZ]): 
         return False
     try:
-        url_post_foto = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID}/photos"
-        params = {'url': url_imagem, 'message': legenda, 'access_token': META_API_TOKEN}
+        url_post_foto = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID_VOZ}/photos"
+        params = {'url': url_imagem, 'message': legenda, 'access_token': META_API_TOKEN_VOZ}
         r = requests.post(url_post_foto, params=params, timeout=20)
         r.raise_for_status()
-        print("✅ [ETAPA 4/4] Post publicado no Facebook com sucesso!")
+        print("✅ [ETAPA 4/4] Post publicado no Facebook (Voz) com sucesso!")
         return True
     except Exception as e:
         print(f"❌ [ERRO FACEBOOK] Falha ao publicar: {e}")
@@ -158,6 +162,7 @@ def webhook_receiver():
     print("🔔 [WEBHOOK] Webhook recebido do WordPress!")
     
     try:
+        # ... (Lógica de extração de dados do post - sem alterações) ...
         dados_brutos = request.json
         post_info = dados_brutos.get('post', {})
         post_id = post_info.get('ID')
@@ -218,12 +223,11 @@ def webhook_receiver():
     sucesso_fb = publicar_no_facebook(link_wp, legenda_final)
 
     # ==========================================================
-    # NOVO BLOCO: Reenviando o webhook para o Boca No Trombone
+    # BLOCO DE ENCAMINHAMENTO
     # ==========================================================
     print("\n📬 ENCAMINHANDO >> Redirecionando webhook para a automação do Boca No Trombone...")
     url_webhook_boca = "https://auto-post-boca.onrender.com/webhook-boca"
     try:
-        # Reenvia os mesmos dados que o WordPress enviou originalmente
         forward_response = requests.post(url_webhook_boca, json=request.json, timeout=15)
         print(f"    - Resposta do servidor Boca: Status {forward_response.status_code}")
     except Exception as e:
@@ -242,7 +246,7 @@ def webhook_receiver():
 # ==============================================================================
 @app.route('/')
 def health_check():
-    return "Serviço de automação Voz do Litoral v2.5 está no ar.", 200
+    return "Serviço de automação Voz do Litoral v3.0 está no ar.", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
