@@ -14,6 +14,7 @@ import creatomate
 load_dotenv()
 app = Flask(__name__)
 
+# ESTA LINHA PRECISA APARECER NOS SEUS LOGS
 print("🚀 INICIANDO SOLUÇÃO FINAL: BOCA NO TROMBONE v4.0")
 
 # --- Configs do WordPress ---
@@ -57,8 +58,6 @@ def criar_video_com_creatomate(titulo_post, url_imagem_destaque):
         return None
     try:
         client = creatomate.Client(BOCA_CREATOMATE_API_KEY)
-        # IMPORTANTE: As chaves aqui ('titulo-noticia', 'imagem-fundo') devem
-        # corresponder EXATAMENTE aos nomes dos elementos no seu template Creatomate.
         modifications = {
             'titulo-noticia': titulo_post,
             'imagem-fundo': url_imagem_destaque,
@@ -100,14 +99,12 @@ def publicar_reel_no_instagram(url_video, legenda):
         print("    - ⚠️ PULADO: Faltando variáveis do Instagram (Boca).")
         return False
     try:
-        # PASSO 1: Criar container
         url_container = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{BOCA_INSTAGRAM_ID}/media"
         params_container = {'media_type': 'REELS', 'video_url': url_video, 'caption': legenda, 'access_token': BOCA_META_API_TOKEN}
         r_container = requests.post(url_container, params=params_container, timeout=30); r_container.raise_for_status()
         id_criacao = r_container.json()['id']
         
-        # PASSO 2: Verificar status
-        for _ in range(20): # Tenta por até 100 segundos
+        for _ in range(20):
             url_status = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{id_criacao}"
             params_status = {'fields': 'status_code', 'access_token': BOCA_META_API_TOKEN}
             r_status = requests.get(url_status, params=params_status, timeout=20); r_status.raise_for_status()
@@ -118,7 +115,6 @@ def publicar_reel_no_instagram(url_video, legenda):
         else:
             raise Exception("Timeout: Vídeo não processado a tempo.")
 
-        # PASSO 3: Publicar
         url_publicacao = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{BOCA_INSTAGRAM_ID}/media_publish"
         params_publicacao = {'creation_id': id_criacao, 'access_token': BOCA_META_API_TOKEN}
         r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=30); r_publish.raise_for_status()
