@@ -1,6 +1,7 @@
-flask
-requests
 beautifulsoup4
-python-dotenv
+Flask
 gunicorn
 Pillow
+python-dotenv
+requests
+redis
