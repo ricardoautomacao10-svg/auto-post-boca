@@ -5,5 +5,4 @@ Pillow
 python-dotenv
 requests
 redis
-moviepy
-numpy
+creatomate
