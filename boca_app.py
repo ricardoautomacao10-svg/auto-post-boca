@@ -78,21 +78,25 @@ def carregar_fontes_locais():
         return None
 
 def aplicar_pan_zoom(clip_imagem):
-    """Aplica efeito de pan e zoom"""
+    """Aplica efeito de pan e zoom - VERSÃO SIMPLIFICADA E CORRIGIDA"""
     try:
-        clip_ampliado = resize(clip_imagem, 1.2)
+        # Aumenta um pouco a imagem para efeito de zoom
+        clip_ampliado = clip_imagem.resize(1.1)
         
+        # Movimento simples de pan
         def movimento(t):
-            x = 0
-            y = 200 * (t / VIDEO_DURATION)
-            return ('center', y)
+            progresso = t / VIDEO_DURATION
+            x = 'center'  # Mantém centralizado horizontalmente
+            y = 50 * progresso  # Movimento vertical suave
+            return (x, y)
         
         return clip_ampliado.set_position(movimento)
         
     except Exception as e:
-        print(f"❌ Erro no pan/zoom: {e}")
-        return clip_imagem
-
+        print(f"❌ Erro no pan/zoom (usando fallback): {e}")
+        # Fallback: retorna a imagem original centralizada
+        return clip_imagem.set_position(('center', 'center'))
+        
 def criar_overlay_boca(titulo, resumo, caminho_fontes):
     """Cria overlay simplificado"""
     try:
