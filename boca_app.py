@@ -211,10 +211,55 @@ def fazer_upload_cloudinary(arquivo_path):
         print(f"❌ Erro no upload: {e}")
         return None
 
+def publicar_container_instagram(container_id):
+    """Publica o container no Instagram após processamento"""
+    try:
+        print("⏳ Aguardando processamento do vídeo...")
+        
+        # Aguardar até 2 minutos para processamento
+        for _ in range(24):  # 24 tentativas de 5 segundos = 2 minutos
+            time.sleep(5)
+            
+            check_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{container_id}?fields=status_code&access_token={META_API_TOKEN}"
+            status_resp = requests.get(check_url, timeout=30)
+            status_data = status_resp.json()
+            
+            status = status_data.get('status_code')
+            print(f"📊 Status do vídeo: {status}")
+            
+            if status == 'FINISHED':
+                # Publicar o vídeo
+                publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{INSTAGRAM_ID}/media_publish"
+                publish_data = {
+                    'creation_id': container_id,
+                    'access_token': META_API_TOKEN
+                }
+                
+                publish_resp = requests.post(publish_url, data=publish_data, timeout=30)
+                publish_result = publish_resp.json()
+                print(f"🎉 Publicação final: {publish_result}")
+                
+                if 'id' in publish_result:
+                    return True
+                return False
+                
+            elif status == 'ERROR':
+                print(f"❌ Erro no processamento: {status_data}")
+                return False
+                
+        print("⏰ Timeout - vídeo não processado a tempo")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Erro ao publicar container: {e}")
+        return False
+
 def publicar_rede_social(url_video, legenda, plataforma):
-    """Publica nas redes sociais"""
+    """Publica nas redes sociais COM DEBUG COMPLETO"""
     try:
         print(f"📤 Publicando no {plataforma}...")
+        print(f"🔗 URL do vídeo: {url_video}")
+        print(f"📝 Legenda: {legenda[:100]}...")
         
         if plataforma == "instagram":
             url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{INSTAGRAM_ID}/media"
@@ -232,10 +277,29 @@ def publicar_rede_social(url_video, legenda, plataforma):
                 "access_token": META_API_TOKEN
             }
         
+        print(f"🌐 URL da API: {url}")
+        print(f"⚙️ Parâmetros: { {k: v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v for k, v in params.items() if k != 'access_token'} }")
+        
         resposta = requests.post(url, data=params, timeout=60)
+        print(f"📡 Status Code: {resposta.status_code}")
+        print(f"📡 Response: {resposta.text}")
+        
         resposta.raise_for_status()
-        print(f"✅ Publicado no {plataforma}!")
-        return True
+        
+        resultado = resposta.json()
+        print(f"✅ Resposta da API: {resultado}")
+        
+        if plataforma == "instagram":
+            # Para Instagram, precisamos do ID do container e publicar depois
+            container_id = resultado.get('id')
+            if container_id:
+                print(f"📦 Container ID: {container_id}")
+                # Aguardar processamento e publicar
+                return publicar_container_instagram(container_id)
+            return False
+        else:
+            print(f"✅ Publicado no {plataforma}!")
+            return True
         
     except Exception as e:
         print(f"❌ Erro ao publicar no {plataforma}: {e}")
@@ -277,12 +341,38 @@ def webhook_receiver():
             print("❌ Post ID não encontrado")
             return jsonify({"erro": "Post ID não fornecido"}), 400
         
-        # Buscar dados do post
+        # DEBUG: Verificar credenciais WordPress
+        print(f"🔑 WP_URL: {WP_URL}")
+        print(f"🔑 WP_USER: {WP_USER}")
+        print(f"🔑 WP_PASSWORD: {'*' * len(WP_PASSWORD) if WP_PASSWORD else 'None'}")
+        
+        # Buscar dados do post - COM DEBUG
         print("🌐 Buscando dados do WordPress...")
         url_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-        resposta = requests.get(url_post, headers=HEADERS_WP, timeout=30)
-        resposta.raise_for_status()
-        post = resposta.json()
+        print(f"📋 URL da API: {url_post}")
+        print(f"🔑 Headers: {HEADERS_WP}")
+        
+        try:
+            resposta = requests.get(url_post, headers=HEADERS_WP, timeout=30)
+            print(f"📡 Status Code: {resposta.status_code}")
+            
+            if resposta.status_code != 200:
+                print(f"❌ Erro HTTP: {resposta.status_code}")
+                print(f"❌ Response: {resposta.text[:500]}...")
+                return jsonify({"erro": f"Erro WordPress HTTP {resposta.status_code}"}), 500
+            
+            resposta.raise_for_status()
+            post = resposta.json()
+            print("✅ Dados do post obtidos com sucesso!")
+            
+        except requests.exceptions.HTTPError as e:
+            print(f"❌ Erro HTTP: {e}")
+            print(f"❌ Response: {resposta.text[:500]}...")
+            return jsonify({"erro": f"Erro WordPress: {e}"}), 500
+            
+        except Exception as e:
+            print(f"❌ Erro ao buscar post: {e}")
+            return jsonify({"erro": f"Erro ao buscar post: {e}"}), 500
         
         # Extrair título e resumo
         titulo = BeautifulSoup(post.get('title', {}).get('rendered', ''), 'html.parser').get_text()
@@ -297,6 +387,8 @@ def webhook_receiver():
             return jsonify({"erro": "Sem imagem de destaque"}), 400
         
         url_imagem = f"{WP_URL}/wp-json/wp/v2/media/{imagem_id}"
+        print(f"🖼️ Buscando imagem: {url_imagem}")
+        
         resposta_imagem = requests.get(url_imagem, headers=HEADERS_WP, timeout=30)
         resposta_imagem.raise_for_status()
         url_imagem = resposta_imagem.json().get("source_url")
@@ -344,6 +436,24 @@ def webhook_receiver():
                 print("🧹 Arquivo temporário removido")
             except Exception as e:
                 print(f"⚠️ Erro na limpeza: {e}")
+
+@app.route('/teste-instagram', methods=['GET'])
+def teste_instagram():
+    """Testa a conexão com a API do Instagram"""
+    try:
+        url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{INSTAGRAM_ID}?fields=id,name,username&access_token={META_API_TOKEN}"
+        resposta = requests.get(url, timeout=30)
+        
+        print(f"📡 Status: {resposta.status_code}")
+        print(f"📡 Response: {resposta.text}")
+        
+        if resposta.status_code == 200:
+            return jsonify({"status": "conectado", "dados": resposta.json()})
+        else:
+            return jsonify({"status": "erro", "code": resposta.status_code, "message": resposta.text})
+            
+    except Exception as e:
+        return jsonify({"status": "erro", "message": str(e)})
 
 @app.route('/teste-integracao', methods=['GET'])
 def teste_integracao():
