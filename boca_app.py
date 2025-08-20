@@ -77,18 +77,20 @@ def handle_webhook():
 @app.route('/teste')
 def teste():
     """Teste manual"""
-    video_url = "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
-    caption = "TESTE - Sistema aprovado e funcionando! 🚀"
+    video_url = "https://res.cloudinary.com/dj1h27ueg/video/upload/v1755717469/boca_reels/i6pys2w5cwwu1t1zfvs4.mp4"
+    caption = "TESTE FINAL - Sistema funcionando perfeitamente! 🎉"
     
-    thread = threading.Thread(target=publicar_facebook, args=(video_url, caption))
-    thread.start()
+    success = publicar_facebook(video_url, caption)
     
-    return "✅ Teste iniciado! Verifique os logs.", 200
+    if success:
+        return "🎉 PUBLICAÇÃO CONCLUÍDA COM SUCESSO!", 200
+    else:
+        return "❌ Erro na publicação. Verifique os logs.", 400
 
 @app.route('/')
 def home():
-    return "🚀 PublicadorBocaFinal - APP LIBERADO E FUNCIONANDO!", 200
+    return "🚀 PublicadorBocaFinal - SISTEMA FUNCIONANDO! 🎉", 200
 
 if __name__ == '__main__':
-    logger.info("🎉 App liberado pelo Facebook - Pronto para publicar!")
+    logger.info("🎉 SISTEMA APROVADO E FUNCIONANDO!")
     app.run(host='0.0.0.0', port=10000)
