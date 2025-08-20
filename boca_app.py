@@ -3,6 +3,12 @@ import requests
 import os
 import threading
 import logging
+import json
+from PIL import Image, ImageDraw, ImageFont
+import requests
+from io import BytesIO
+import cloudinary
+import cloudinary.uploader
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -10,13 +16,60 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Token da página (configure no Render.com)
+# Configurações
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
+cloudinary.config(
+    cloud_name="dj1h27ueg",
+    api_key=os.getenv('CLOUDINARY_API_KEY'),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET')
+)
+
+def criar_video_da_imagem(image_url, caption):
+    """Cria um vídeo a partir de uma imagem e legenda"""
+    try:
+        logger.info("🎬 Criando vídeo a partir da imagem...")
+        
+        # 1. Baixar a imagem
+        response = requests.get(image_url)
+        img = Image.open(BytesIO(response.content))
+        
+        # 2. Redimensionar para formato Reel (9:16)
+        reel_width, reel_height = 1080, 1920
+        img = img.resize((reel_width, reel_height), Image.LANCZOS)
+        
+        # 3. Adicionar legenda na imagem (opcional)
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 60)
+        except:
+            font = ImageFont.load_default()
+        
+        # Adicionar texto (simplificado)
+        draw.text((50, 50), caption[:100], fill="white", font=font)
+        
+        # 4. Salvar como MP4 (imagem estática com 10 segundos)
+        video_path = "/tmp/video_reel.mp4"
+        img.save(video_path, format='MP4', duration=10000)  # 10 segundos
+        
+        # 5. Fazer upload para Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            video_path,
+            resource_type="video",
+            folder="boca_reels",
+            public_id=f"reel_{int(time.time())}"
+        )
+        
+        logger.info(f"✅ Vídeo criado: {upload_result['secure_url']}")
+        return upload_result['secure_url']
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar vídeo: {str(e)}")
+        return None
 
 def publicar_facebook(video_url, caption):
     """Publica vídeo no Facebook"""
     try:
-        logger.info("📤 Iniciando publicação no Facebook...")
+        logger.info("📤 Publicando no Facebook...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token não configurado")
@@ -55,42 +108,62 @@ def publicar_facebook(video_url, caption):
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
     try:
-        logger.info("📍 Recebendo vídeo do WordPress...")
+        logger.info("📍 Recebendo dados do WordPress...")
         
-        data = request.json
-        video_url = data.get('video_url', '')
-        caption = data.get('caption', '')
+        # Debug dos dados recebidos
+        logger.info(f"📦 Dados recebidos: {request.data}")
         
-        if not video_url or not caption:
-            return "❌ Dados incompletos", 400
+        # Tenta parsear os dados
+        data = request.json if request.json else {}
+        logger.info(f"🎯 Dados JSON: {data}")
         
-        # Publicar em background
-        thread = threading.Thread(target=publicar_facebook, args=(video_url, caption))
-        thread.start()
+        # Extrai imagem e texto (campos do WordPress)
+        image_url = data.get('image_url') or data.get('url') or data.get('featured_image')
+        caption = data.get('caption') or data.get('title') or data.get('content') or data.get('excerpt')
         
-        return "✅ Vídeo recebido! Publicando...", 200
+        logger.info(f"🖼️ Imagem: {image_url}")
+        logger.info(f"📋 Texto: {caption}")
         
+        if not image_url or not caption:
+            logger.error("❌ Dados incompletos: precisa de image_url e caption")
+            return "❌ Envie image_url e caption", 400
+        
+        # Cria vídeo da imagem
+        video_url = criar_video_da_imagem(image_url, caption)
+        
+        if not video_url:
+            return "❌ Erro ao criar vídeo", 500
+        
+        # Publica no Facebook
+        success = publicar_facebook(video_url, caption)
+        
+        if success:
+            return "✅ Reel criado e publicado com sucesso!", 200
+        else:
+            return "❌ Erro ao publicar", 500
+            
     except Exception as e:
         logger.error(f"❌ Erro no webhook: {str(e)}")
-        return "Erro", 500
+        return "Erro interno", 500
 
-@app.route('/teste')
-def teste():
-    """Teste manual"""
-    video_url = "https://res.cloudinary.com/dj1h27ueg/video/upload/v1755717469/boca_reels/i6pys2w5cwwu1t1zfvs4.mp4"
-    caption = "TESTE FINAL - Sistema funcionando perfeitamente! 🎉"
+@app.route('/teste-imagem')
+def teste_imagem():
+    """Teste com imagem real"""
+    image_url = "https://exemplo.com/imagem.jpg"  # URL de uma imagem real
+    caption = "Teste de Reel com imagem - Sistema funcionando! 🎉"
     
-    success = publicar_facebook(video_url, caption)
+    video_url = criar_video_da_imagem(image_url, caption)
+    if video_url:
+        success = publicar_facebook(video_url, caption)
+        if success:
+            return "🎉 Reel criado e publicado!", 200
     
-    if success:
-        return "🎉 PUBLICAÇÃO CONCLUÍDA COM SUCESSO!", 200
-    else:
-        return "❌ Erro na publicação. Verifique os logs.", 400
+    return "❌ Erro no teste", 400
 
 @app.route('/')
 def home():
-    return "🚀 PublicadorBocaFinal - SISTEMA FUNCIONANDO! 🎉", 200
+    return "🚀 Sistema pronto para transformar imagens em Reels!", 200
 
 if __name__ == '__main__':
-    logger.info("🎉 SISTEMA APROVADO E FUNCIONANDO!")
+    logger.info("🎉 Sistema de criação de Reels pronto!")
     app.run(host='0.0.0.0', port=10000)
