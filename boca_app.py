@@ -8,10 +8,9 @@ from base64 import b64encode
 import cloudinary
 import cloudinary.uploader
 import tempfile
-from moviepy.editor import ImageClip, CompositeVideoClip
-from moviepy.video.fx.all import resize
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import io
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -28,9 +27,9 @@ if all([WP_URL, WP_USER, WP_PASSWORD]):
     HEADERS_WP = {'Authorization': f'Basic {token_wp.decode("utf-8")}'}
 
 # Config Meta
-INSTAGRAM_ID = os.getenv('BOCA_INSTAGRAM_ID')
-FACEBOOK_PAGE_ID = os.getenv('BOCA_FACEBOOK_PAGE_ID')
-META_API_TOKEN = os.getenv('BOCA_META_API_TOKEN')
+INSTAGRAM_ID = os.getenv('INSTAGRAM_ID')
+FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID') 
+META_API_TOKEN = os.getenv('META_API_TOKEN')
 GRAPH_API_VERSION = 'v21.0'
 
 # Config Cloudinary
@@ -77,15 +76,6 @@ def carregar_fontes_locais():
         print(f"❌ Erro ao carregar fontes: {e}")
         return None
 
-def aplicar_pan_zoom(clip_imagem):
-    """Aplica efeito de pan e zoom - VERSÃO SIMPLIFICADA"""
-    try:
-        # Versão simplificada que funciona
-        return clip_imagem.set_position(('center', 'center'))
-    except Exception as e:
-        print(f"❌ Erro no pan/zoom: {e}")
-        return clip_imagem
-
 def criar_overlay_boca(titulo, resumo, caminho_fontes):
     """Cria overlay no estilo Boca no Trombone"""
     try:
@@ -94,7 +84,10 @@ def criar_overlay_boca(titulo, resumo, caminho_fontes):
         
         # Configurações de fonte
         try:
-            fonte = ImageFont.truetype(caminho_fontes["TEXTO"], 45) if caminho_fontes.get("TEXTO") else ImageFont.load_default()
+            if caminho_fontes.get("TEXTO"):
+                fonte = ImageFont.truetype(caminho_fontes["TEXTO"], 45)
+            else:
+                fonte = ImageFont.load_default()
         except:
             fonte = ImageFont.load_default()
         
@@ -139,62 +132,54 @@ def criar_overlay_boca(titulo, resumo, caminho_fontes):
         print(f"❌ Erro ao criar overlay: {e}")
         return None
 
-def gerar_video_estilo_boca(url_imagem, titulo, resumo):
-    """Gera vídeo simplificado"""
-    fontes = None
-    overlay_path = None
-    video_path = None
-    img_path = None
-    
+def gerar_video_simples(url_imagem, titulo, resumo):
+    """Gera vídeo usando PIL + OpenCV - método confiável"""
     try:
-        print("🎬 Iniciando geração de vídeo...")
-        
-        # Carrega fontes locais
-        fontes = carregar_fontes_locais()
+        print("🎬 Gerando vídeo com método simplificado...")
         
         # Baixa imagem
-        print("📥 Baixando imagem...")
         resposta = requests.get(url_imagem, timeout=30)
         resposta.raise_for_status()
         
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as img_temp:
-            img_path = img_temp.name
-            img_temp.write(resposta.content)
+        # Abre a imagem e redimensiona
+        img = Image.open(io.BytesIO(resposta.content))
+        img = img.resize(VIDEO_SIZE)
+        
+        # Carrega fontes
+        fontes = carregar_fontes_locais()
         
         # Cria overlay
-        print("🎨 Criando overlay...")
         overlay_path = criar_overlay_boca(titulo, resumo, fontes or {})
         
-        # Cria vídeo
+        # Combina imagem e overlay
+        if overlay_path and os.path.exists(overlay_path):
+            overlay_img = Image.open(overlay_path)
+            img.paste(overlay_img, (0, 0), overlay_img)
+        
+        # Converte para array numpy (OpenCV)
+        frame = np.array(img)
+        
+        # Converte RGB para BGR (OpenCV usa BGR)
+        import cv2
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        
+        # Cria arquivo de vídeo temporário
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_temp:
             video_path = video_temp.name
         
-        # Clip da imagem
-        print("📹 Criando clip...")
-        clip_imagem = ImageClip(img_path, duration=VIDEO_DURATION)
-        clip_imagem = aplicar_pan_zoom(clip_imagem)
-        clip_imagem = clip_imagem.resize(width=VIDEO_SIZE[0])
-        
-        # Clip do overlay (se existir)
-        if overlay_path and os.path.exists(overlay_path):
-            clip_overlay = ImageClip(overlay_path, duration=VIDEO_DURATION)
-            clip_overlay = clip_overlay.set_position(('center', 'center'))
-            video_final = CompositeVideoClip([clip_imagem, clip_overlay])
-        else:
-            video_final = clip_imagem
-        
-        video_final = video_final.set_fps(VIDEO_FPS)
-        
-        print("💾 Exportando vídeo...")
-        video_final.write_videofile(
+        # Cria vídeo com mesmo frame repetido
+        out = cv2.VideoWriter(
             video_path, 
-            codec="libx264", 
-            audio=False, 
-            verbose=False, 
-            logger=None,
-            preset='fast'
+            cv2.VideoWriter_fourcc(*'mp4v'), 
+            VIDEO_FPS, 
+            VIDEO_SIZE
         )
         
+        # Adiciona frames para durar 10 segundos
+        for _ in range(VIDEO_DURATION * VIDEO_FPS):
+            out.write(frame)
+        
+        out.release()
         print("✅ Vídeo gerado com sucesso!")
         return video_path
         
@@ -204,19 +189,11 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
         
     finally:
         # Limpeza
-        for path in [overlay_path, img_path]:
-            if path and os.path.exists(path):
-                try:
-                    os.unlink(path)
-                except:
-                    pass
-        if fontes:
-            for font_path in fontes.values():
-                if font_path and os.path.exists(font_path):
-                    try:
-                        os.unlink(font_path)
-                    except:
-                        pass
+        if 'overlay_path' in locals() and overlay_path and os.path.exists(overlay_path):
+            try:
+                os.unlink(overlay_path)
+            except:
+                pass
 
 def fazer_upload_cloudinary(arquivo_path):
     """Upload para Cloudinary"""
@@ -277,7 +254,7 @@ def webhook_receiver():
         # Verifica variáveis de ambiente primeiro
         variaveis_necessarias = [
             'WP_URL', 'WP_USER', 'WP_PASSWORD', 
-            'BOCA_INSTAGRAM_ID', 'BOCA_FACEBOOK_PAGE_ID', 'BOCA_META_API_TOKEN',
+            'INSTAGRAM_ID', 'FACEBOOK_PAGE_ID', 'META_API_TOKEN',
             'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'
         ]
         
@@ -326,7 +303,7 @@ def webhook_receiver():
         print(f"🖼️ URL da imagem: {url_imagem}")
         
         # Gerar vídeo
-        video_path = gerar_video_estilo_boca(url_imagem, titulo, resumo)
+        video_path = gerar_video_simples(url_imagem, titulo, resumo)
         if not video_path:
             return jsonify({"erro": "Falha ao gerar vídeo"}), 500
         
