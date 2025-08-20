@@ -45,7 +45,7 @@ VIDEO_DURATION = 10  # 10 segundos para retenção
 VIDEO_FPS = 24
 VIDEO_SIZE = (1080, 1920)  # Formato Reels/Stories
 
-# Configurações de tipografia (fontes fortes e populares)
+# Configurações de tipografia (fontes fortes e populares) - URLs CORRIGIDAS
 GOOGLE_FONTS = {
     "TITULO": "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
     "TEXTO": "https://github.com/google/fonts/raw/main/ofl/roboto/Roboto-Bold.ttf",
