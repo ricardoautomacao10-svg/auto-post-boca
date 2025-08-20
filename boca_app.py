@@ -45,30 +45,30 @@ VIDEO_DURATION = 10
 VIDEO_FPS = 24
 VIDEO_SIZE = (1080, 1920)
 
-# ========================= FUNÇÕES SIMPLIFICADAS =========================
+# Configurações de fontes LOCAIS
+FONTES_LOCAIS = {
+    "TITULO": "Anton-Regular.ttf",
+    "TEXTO": "Roboto-Bold.ttf", 
+    "RODAPE": "Roboto-Black.ttf"
+}
+
+# ========================= FUNÇÕES PRINCIPAIS =========================
 
 def carregar_fontes_locais():
-    """Carrega apenas fontes locais - SEM downloads"""
+    """Carrega fontes locais da raiz do projeto"""
     fontes = {}
     try:
-        # Verifica se as fontes existem na raiz
-        fontes_disponiveis = {
-            "TITULO": "Anton-Regular.ttf",
-            "TEXTO": "Roboto-Bold.ttf", 
-            "RODAPE": "Roboto-Black.ttf"
-        }
-        
-        for nome, arquivo in fontes_disponiveis.items():
-            caminho = os.path.join(os.path.dirname(__file__), arquivo)
-            if os.path.exists(caminho):
-                # Cria cópia temporária
-                with open(caminho, 'rb') as f_origem:
+        for nome, arquivo in FONTES_LOCAIS.items():
+            caminho_fonte = os.path.join(os.path.dirname(__file__), arquivo)
+            
+            if os.path.exists(caminho_fonte):
+                with open(caminho_fonte, 'rb') as f_origem:
                     with tempfile.NamedTemporaryFile(suffix='.ttf', delete=False) as f_temp:
                         f_temp.write(f_origem.read())
                         fontes[nome] = f_temp.name
-                print(f"✅ Fonte {nome} carregada localmente")
+                print(f"✅ Fonte {nome} carregada: {arquivo}")
             else:
-                print(f"⚠️ Fonte {arquivo} não encontrada, usando padrão")
+                print(f"⚠️ Fonte {arquivo} não encontrada")
                 fontes[nome] = None
         
         return fontes
@@ -78,39 +78,25 @@ def carregar_fontes_locais():
         return None
 
 def aplicar_pan_zoom(clip_imagem):
-    """Aplica efeito de pan e zoom - VERSÃO SIMPLIFICADA E CORRIGIDA"""
+    """Aplica efeito de pan e zoom - VERSÃO SIMPLIFICADA"""
     try:
-        # Aumenta um pouco a imagem para efeito de zoom
-        clip_ampliado = clip_imagem.resize(1.1)
-        
-        # Movimento simples de pan
-        def movimento(t):
-            progresso = t / VIDEO_DURATION
-            x = 'center'  # Mantém centralizado horizontalmente
-            y = 50 * progresso  # Movimento vertical suave
-            return (x, y)
-        
-        return clip_ampliado.set_position(movimento)
-        
-    except Exception as e:
-        print(f"❌ Erro no pan/zoom (usando fallback): {e}")
-        # Fallback: retorna a imagem original centralizada
+        # Versão simplificada que funciona
         return clip_imagem.set_position(('center', 'center'))
-        
+    except Exception as e:
+        print(f"❌ Erro no pan/zoom: {e}")
+        return clip_imagem
+
 def criar_overlay_boca(titulo, resumo, caminho_fontes):
-    """Cria overlay simplificado"""
+    """Cria overlay no estilo Boca no Trombone"""
     try:
         overlay = Image.new('RGBA', VIDEO_SIZE, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # Configurações de fonte com fallback
+        # Configurações de fonte
         try:
-            if caminho_fontes.get("TEXTO"):
-                fonte_texto = ImageFont.truetype(caminho_fontes["TEXTO"], 45)
-            else:
-                fonte_texto = ImageFont.load_default()
+            fonte = ImageFont.truetype(caminho_fontes["TEXTO"], 45) if caminho_fontes.get("TEXTO") else ImageFont.load_default()
         except:
-            fonte_texto = ImageFont.load_default()
+            fonte = ImageFont.load_default()
         
         # Cores
         cor_texto = (0, 0, 0)
@@ -127,12 +113,12 @@ def criar_overlay_boca(titulo, resumo, caminho_fontes):
                        (VIDEO_SIZE[0]-45, VIDEO_SIZE[1] - 145)], 
                       outline=cor_destaque, width=5)
 
-        # Título (simplificado)
-        titulo = titulo.upper()[:50]  # Limita caracteres
+        # Título
+        titulo = titulo.upper()[:50]
         y_pos = VIDEO_SIZE[1]//2 - 50
-        x_pos = (VIDEO_SIZE[0] - 1000) // 2  # Posição aproximada
+        x_pos = 100
         
-        draw.text((x_pos, y_pos), titulo, font=fonte_texto, fill=cor_texto)
+        draw.text((x_pos, y_pos), titulo, font=fonte, fill=cor_texto)
         
         # Rodapé
         rodape = "@BOCANOTROMBONELITORAL"
@@ -140,7 +126,7 @@ def criar_overlay_boca(titulo, resumo, caminho_fontes):
         x_pos = (VIDEO_SIZE[0] - 600) // 2
         
         draw.rectangle([(x_pos-20, y_pos-10), (x_pos+600, y_pos+50)], fill=cor_texto)
-        draw.text((x_pos, y_pos), rodape, font=fonte_texto, fill=(255, 255, 255))
+        draw.text((x_pos, y_pos), rodape, font=fonte, fill=(255, 255, 255))
         
         # Salvar overlay
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as overlay_temp:
@@ -161,10 +147,13 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
     img_path = None
     
     try:
+        print("🎬 Iniciando geração de vídeo...")
+        
         # Carrega fontes locais
         fontes = carregar_fontes_locais()
         
         # Baixa imagem
+        print("📥 Baixando imagem...")
         resposta = requests.get(url_imagem, timeout=30)
         resposta.raise_for_status()
         
@@ -173,6 +162,7 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
             img_temp.write(resposta.content)
         
         # Cria overlay
+        print("🎨 Criando overlay...")
         overlay_path = criar_overlay_boca(titulo, resumo, fontes or {})
         
         # Cria vídeo
@@ -180,6 +170,7 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
             video_path = video_temp.name
         
         # Clip da imagem
+        print("📹 Criando clip...")
         clip_imagem = ImageClip(img_path, duration=VIDEO_DURATION)
         clip_imagem = aplicar_pan_zoom(clip_imagem)
         clip_imagem = clip_imagem.resize(width=VIDEO_SIZE[0])
@@ -193,8 +184,18 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
             video_final = clip_imagem
         
         video_final = video_final.set_fps(VIDEO_FPS)
-        video_final.write_videofile(video_path, codec="libx264", audio=False, verbose=False, logger=None)
         
+        print("💾 Exportando vídeo...")
+        video_final.write_videofile(
+            video_path, 
+            codec="libx264", 
+            audio=False, 
+            verbose=False, 
+            logger=None,
+            preset='fast'
+        )
+        
+        print("✅ Vídeo gerado com sucesso!")
         return video_path
         
     except Exception as e:
@@ -220,7 +221,14 @@ def gerar_video_estilo_boca(url_imagem, titulo, resumo):
 def fazer_upload_cloudinary(arquivo_path):
     """Upload para Cloudinary"""
     try:
-        resultado = cloudinary.uploader.upload(arquivo_path, resource_type="video", folder="boca_reels")
+        print("☁️ Fazendo upload para Cloudinary...")
+        resultado = cloudinary.uploader.upload(
+            arquivo_path, 
+            resource_type="video", 
+            folder="boca_reels",
+            timeout=300
+        )
+        print("✅ Upload concluído!")
         return resultado['secure_url']
     except Exception as e:
         print(f"❌ Erro no upload: {e}")
@@ -229,56 +237,95 @@ def fazer_upload_cloudinary(arquivo_path):
 def publicar_rede_social(url_video, legenda, plataforma):
     """Publica nas redes sociais"""
     try:
+        print(f"📤 Publicando no {plataforma}...")
+        
         if plataforma == "instagram":
             url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{INSTAGRAM_ID}/media"
-            params = {"media_type": "REELS", "video_url": url_video, "caption": legenda[:2200], "access_token": META_API_TOKEN}
+            params = {
+                "media_type": "REELS", 
+                "video_url": url_video, 
+                "caption": legenda[:2200], 
+                "access_token": META_API_TOKEN
+            }
         else:
             url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{FACEBOOK_PAGE_ID}/videos"
-            params = {"file_url": url_video, "description": legenda, "access_token": META_API_TOKEN}
+            params = {
+                "file_url": url_video, 
+                "description": legenda, 
+                "access_token": META_API_TOKEN
+            }
         
         resposta = requests.post(url, data=params, timeout=60)
         resposta.raise_for_status()
+        print(f"✅ Publicado no {plataforma}!")
         return True
         
     except Exception as e:
-        print(f"❌ Erro ao publicar: {e}")
+        print(f"❌ Erro ao publicar no {plataforma}: {e}")
         return False
 
-# ========================= WEBHOOK =========================
+# ========================= ROTAS PRINCIPAIS =========================
 
 @app.route('/webhook-boca', methods=['POST'])
 def webhook_receiver():
-    print("🔔 Webhook recebido")
+    print("=" * 60)
+    print("🔔 WEBHOOK RECEBIDO - INICIANDO PROCESSAMENTO")
+    print("=" * 60)
     
     video_path = None
     try:
+        # Verifica variáveis de ambiente primeiro
+        variaveis_necessarias = [
+            'WP_URL', 'WP_USER', 'WP_PASSWORD', 
+            'BOCA_INSTAGRAM_ID', 'BOCA_FACEBOOK_PAGE_ID', 'BOCA_META_API_TOKEN',
+            'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'
+        ]
+        
+        variaveis_faltantes = [var for var in variaveis_necessarias if not os.getenv(var)]
+        if variaveis_faltantes:
+            print(f"❌ VARIÁVEIS FALTANDO: {variaveis_faltantes}")
+            return jsonify({"erro": f"Variáveis faltando: {variaveis_faltantes}"}), 500
+        
         dados = request.json
+        print(f"📦 Dados recebidos: {dados}")
+        
+        if not dados:
+            print("❌ Nenhum dado JSON recebido")
+            return jsonify({"erro": "Nenhum dado recebido"}), 400
+            
         post_id = dados.get("post_id")
+        print(f"📝 Post ID: {post_id}")
         
         if not post_id:
-            return jsonify({"erro": "Sem post_id"}), 400
+            print("❌ Post ID não encontrado")
+            return jsonify({"erro": "Post ID não fornecido"}), 400
         
-        # Busca dados do post
+        # Buscar dados do post
+        print("🌐 Buscando dados do WordPress...")
         url_post = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
         resposta = requests.get(url_post, headers=HEADERS_WP, timeout=30)
         resposta.raise_for_status()
         post = resposta.json()
         
-        # Extrai dados
+        # Extrair título e resumo
         titulo = BeautifulSoup(post.get('title', {}).get('rendered', ''), 'html.parser').get_text()
         resumo = BeautifulSoup(post.get('excerpt', {}).get('rendered', ''), 'html.parser').get_text(strip=True)
+        print(f"📰 Título: {titulo}")
+        print(f"📋 Resumo: {resumo}")
         
-        # Busca imagem
+        # Buscar imagem
         imagem_id = post.get('featured_media')
         if not imagem_id:
-            return jsonify({"erro": "Sem imagem"}), 400
+            print("❌ Post sem imagem destacada")
+            return jsonify({"erro": "Sem imagem de destaque"}), 400
         
         url_imagem = f"{WP_URL}/wp-json/wp/v2/media/{imagem_id}"
         resposta_imagem = requests.get(url_imagem, headers=HEADERS_WP, timeout=30)
         resposta_imagem.raise_for_status()
         url_imagem = resposta_imagem.json().get("source_url")
+        print(f"🖼️ URL da imagem: {url_imagem}")
         
-        # Gera vídeo
+        # Gerar vídeo
         video_path = gerar_video_estilo_boca(url_imagem, titulo, resumo)
         if not video_path:
             return jsonify({"erro": "Falha ao gerar vídeo"}), 500
@@ -288,30 +335,110 @@ def webhook_receiver():
         if not url_publica:
             return jsonify({"erro": "Falha no upload"}), 500
         
-        # Publica
-        legenda = f"{titulo}\n\n{resumo}\n\n📖 Leia mais!\n\n#BocaNoTrombone #LitoralNorte"
+        print(f"🔗 URL pública do vídeo: {url_publica}")
+        
+        # Publicar
+        legenda = f"{titulo}\n\n{resumo}\n\n📖 Leia a matéria completa no site!\n\n#BocaNoTrombone #LitoralNorte #Noticias #SãoSebastião"
+        
         instagram_ok = publicar_rede_social(url_publica, legenda, "instagram")
         facebook_ok = publicar_rede_social(url_publica, legenda, "facebook")
         
         if instagram_ok or facebook_ok:
-            return jsonify({"sucesso": True}), 200
+            print("🎉 PUBLICAÇÃO CONCLUÍDA COM SUCESSO!")
+            return jsonify({
+                "sucesso": True,
+                "mensagem": "Vídeo publicado com sucesso!",
+                "url_video": url_publica
+            }), 200
         else:
+            print("❌ Nenhuma publicação foi bem-sucedida")
             return jsonify({"erro": "Falha na publicação"}), 500
             
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ ERRO GERAL: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"erro": str(e)}), 500
         
     finally:
         if video_path and os.path.exists(video_path):
             try:
                 os.unlink(video_path)
-            except:
-                pass
+                print("🧹 Arquivo temporário removido")
+            except Exception as e:
+                print(f"⚠️ Erro na limpeza: {e}")
+
+@app.route('/teste-integracao', methods=['GET'])
+def teste_integracao():
+    """Rota para testar todas as integrações"""
+    print("🧪 Iniciando teste de integração")
+    
+    resultados = {
+        "wordpress": False,
+        "cloudinary": False, 
+        "meta": False,
+        "fontes": False
+    }
+    
+    # Teste WordPress
+    try:
+        if all([WP_URL, WP_USER, WP_PASSWORD]):
+            resultados["wordpress"] = True
+            print("✅ Variáveis WordPress OK")
+        else:
+            print("❌ Variáveis WordPress incompletas")
+    except Exception as e:
+        print(f"❌ Erro WordPress: {e}")
+    
+    # Teste Cloudinary
+    try:
+        cloudinary_vars = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']
+        if all([os.getenv(var) for var in cloudinary_vars]):
+            resultados["cloudinary"] = True
+            print("✅ Variáveis Cloudinary OK")
+        else:
+            print("❌ Variáveis Cloudinary incompletas")
+    except Exception as e:
+        print(f"❌ Erro Cloudinary: {e}")
+    
+    # Teste Meta
+    try:
+        if all([INSTAGRAM_ID, FACEBOOK_PAGE_ID, META_API_TOKEN]):
+            resultados["meta"] = True
+            print("✅ Variáveis Meta OK")
+        else:
+            print("❌ Variáveis Meta incompletas")
+    except Exception as e:
+        print(f"❌ Erro Meta: {e}")
+    
+    # Teste Fontes
+    try:
+        fontes = carregar_fontes_locais()
+        if fontes:
+            resultados["fontes"] = True
+            print("✅ Fontes carregadas OK")
+        else:
+            print("❌ Erro ao carregar fontes")
+    except Exception as e:
+        print(f"❌ Erro fontes: {e}")
+    
+    return jsonify({
+        "status": "teste_concluido",
+        "resultados": resultados,
+        "timestamp": time.time()
+    })
 
 @app.route('/')
 def home():
-    return "🚀 BOCA NO TROMBONE - Sistema de Automação"
+    return "🚀 BOCA NO TROMBONE - Sistema de Automação de Reels (10s)"
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        "status": "online",
+        "service": "boca-no-trombone",
+        "timestamp": time.time()
+    })
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
