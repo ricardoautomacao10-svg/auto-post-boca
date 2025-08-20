@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: boca-no-trombone
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn boca_app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
