@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: boca-no-trombone
+    name: boca-app
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn boca_app:app
+    startCommand: gunicorn boca_app:app --timeout 120 --workers 2
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
