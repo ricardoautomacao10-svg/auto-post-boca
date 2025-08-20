@@ -1,116 +1,113 @@
 from flask import Flask, request
 import requests
 import os
-import cloudinary
-import cloudinary.uploader
 import threading
-import time
 
 app = Flask(__name__)
 
-# Configurações
+# 🔐 TOKEN SEGURO - Configurado APENAS no Render.com
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
-USER_ACCESS_TOKEN = os.getenv('USER_ACCESS_TOKEN')
 
-def testar_tokens():
-    """Testa se os tokens estão válidos"""
-    print("🧪 Testando tokens...")
-    
-    # Testar token do Facebook
+def publicar_somente_facebook(video_url, caption):
+    """Publica apenas no Facebook - Mais simples"""
     try:
-        test_url = f"https://graph.facebook.com/v23.0/me/accounts?access_token={PAGE_TOKEN_BOCA}"
-        response = requests.get(test_url, timeout=10)
-        print(f"✅ Token Facebook: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Token Facebook inválido: {str(e)}")
-    
-    # Testar token do Instagram
-    try:
-        test_url = f"https://graph.facebook.com/v23.0/me?access_token={USER_ACCESS_TOKEN}"
-        response = requests.get(test_url, timeout=10)
-        print(f"✅ Token Instagram: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Token Instagram inválido: {str(e)}")
-
-def publicar_async(video_url, caption):
-    try:
-        print("📤 Iniciando publicação assíncrona...")
-        
-        # 1. Primeiro testar os tokens
-        testar_tokens()
-        
-        # 2. Publicar no Facebook (com URL formatada)
         print("📤 Publicando no Facebook...")
-        facebook_api_url = "https://graph.facebook.com/v23.0/213776928485804/videos"
         
-        # 🔥 URL formatada para Cloudinary - FORÇANDO MP4
-        video_url_mp4 = video_url.replace('/upload/', '/upload/f_mp4/')
+        if not PAGE_TOKEN_BOCA:
+            print("❌ ERRO: PAGE_TOKEN_BOCA não configurado")
+            print("💡 Configure a variável de ambiente PAGE_TOKEN_BOCA no Render.com")
+            return
         
+        print(f"📹 URL: {video_url}")
+        print(f"📝 Legenda: {caption[:100]}...")
+        
+        # Formata URL do Cloudinary para MP4 (importante!)
+        if '/upload/' in video_url and '/f_mp4/' not in video_url:
+            video_url = video_url.replace('/upload/', '/upload/f_mp4/')
+            print(f"🔧 URL formatada: {video_url}")
+        
+        # Publicação no Facebook
         facebook_params = {
             'access_token': PAGE_TOKEN_BOCA,
-            'file_url': video_url_mp4,  # Usa URL formatada
-            'description': caption[:1000]
+            'file_url': video_url,
+            'description': caption[:1000]  # Limita tamanho
         }
         
-        print(f"📹 URL do vídeo: {video_url_mp4}")
-        facebook_response = requests.post(facebook_api_url, params=facebook_params, timeout=60)
+        print("🌐 Enviando para API do Facebook...")
+        response = requests.post(
+            'https://graph.facebook.com/v23.0/213776928485804/videos',
+            params=facebook_params,
+            timeout=60
+        )
         
-        if facebook_response.status_code == 200:
-            print("✅ Facebook publicado com sucesso!")
-            print(f"📦 ID: {facebook_response.json().get('id')}")
-        else:
-            print(f"❌ Erro Facebook: {facebook_response.text}")
+        print(f"📡 Status Code: {response.status_code}")
+        print(f"📡 Response: {response.text}")
         
-        # 3. Só tenta Instagram se o token estiver válido
-        if USER_ACCESS_TOKEN and "EAA" in USER_ACCESS_TOKEN:
-            print("📤 Publicando no Instagram...")
-            instagram_params = {
-                'access_token': USER_ACCESS_TOKEN,
-                'media_type': 'REELS',
-                'video_url': video_url_mp4,  # Usa mesma URL formatada
-                'caption': caption[:2200]
-            }
-            
-            instagram_response = requests.post(
-                'https://graph.facebook.com/v23.0/17841464327364824/media',
-                params=instagram_params,
-                timeout=60
-            )
-            
-            if instagram_response.status_code == 200:
-                print("✅ Container Instagram criado!")
-                print(f"📦 Container ID: {instagram_response.json().get('id')}")
-            else:
-                print(f"❌ Erro Instagram: {instagram_response.text}")
+        if response.status_code == 200:
+            print("🎉 ✅ PUBLICAÇÃO NO FACEBOOK CONCLUÍDA!")
+            video_id = response.json().get('id')
+            print(f"📦 ID do vídeo: {video_id}")
+            print(f"🔗 Link: https://facebook.com/{video_id}")
         else:
-            print("⚠️ Pulando Instagram - Token inválido")
+            print("❌ Erro na publicação")
+            print(f"💬 Mensagem: {response.text}")
             
     except Exception as e:
-        print(f"❌ Erro na publicação: {str(e)}")
+        print(f"❌ Erro crítico: {str(e)}")
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
     try:
-        # ... (seu código de processamento de vídeo) ...
+        print("📍 Webhook recebido do WordPress!")
         
-        video_url = "https://res.cloudinary.com/dj1h27ueg/video/upload/v1755717469/boca_reels/i6pys2w5cwwu1t1zfvs4.mp4"
-        caption = "Teste de publicação - vídeo curto"
+        # 🔥 Dados REAIS do webhook (ajuste conforme seus dados)
+        data = request.json
+        video_url = data.get('video_url', '')
+        caption = data.get('caption', '')
         
-        # Inicia publicação em background
-        thread = threading.Thread(target=publicar_async, args=(video_url, caption))
+        if not video_url or not caption:
+            return "❌ Dados incompletos", 400
+        
+        print(f"🎬 Vídeo: {video_url}")
+        print(f"📋 Legenda: {caption}")
+        
+        # Publicação em background (só Facebook por enquanto)
+        thread = threading.Thread(target=publicar_somente_facebook, args=(video_url, caption))
         thread.start()
         
-        return "✅ Vídeo recebido. Publicação em background...", 200
+        return "✅ Vídeo recebido! Publicação em andamento...", 200
         
     except Exception as e:
         print(f"❌ Erro no webhook: {str(e)}")
-        return "Erro interno", 500
+        return "Erro ao processar webhook", 500
+
+@app.route('/teste')
+def teste_publicacao():
+    """Rota para teste manual"""
+    # 🔥 Use um vídeo de teste GENÉRICO, não seu vídeo real
+    video_url = "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
+    caption = "TESTE MANUAL - Sistema de publicação automática"
+    
+    thread = threading.Thread(target=publicar_somente_facebook, args=(video_url, caption))
+    thread.start()
+    
+    return "✅ Teste manual iniciado! Verifique os logs.", 200
 
 @app.route('/')
 def home():
-    return "🚀 Servidor Boca no Trombone rodando!", 200
+    return "🚀 Boca no Trombone - Auto Publisher rodando! Use /webhook-boca ou /teste", 200
 
 if __name__ == '__main__':
-    print("🔄 Iniciando servidor...")
-    testar_tokens()  # Testa tokens ao iniciar
+    print("🔄 Servidor iniciado")
+    print("📍 Endpoints disponíveis:")
+    print("   - /webhook-boca (POST) para WordPress")
+    print("   - /teste (GET) para teste manual")
+    
+    # Verifica se o token está configurado
+    if not PAGE_TOKEN_BOCA:
+        print("❌ AVISO: PAGE_TOKEN_BOCA não está configurado")
+        print("💡 Configure no Render.com: Settings > Environment Variables")
+    else:
+        print("✅ PAGE_TOKEN_BOCA configurado")
+    
     app.run(host='0.0.0.0', port=10000)
