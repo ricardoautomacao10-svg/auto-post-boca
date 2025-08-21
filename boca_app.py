@@ -4,66 +4,33 @@ import os
 import threading
 import logging
 import json
-from PIL import Image, ImageDraw, ImageFont
-import requests
-from io import BytesIO
-import cloudinary
-import cloudinary.uploader
 
-# Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configurações
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
-cloudinary.config(
-    cloud_name="dj1h27ueg",
-    api_key=os.getenv('CLOUDINARY_API_KEY'),
-    api_secret=os.getenv('CLOUDINARY_API_SECRET')
-)
+WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
-def criar_video_da_imagem(image_url, caption):
-    """Cria um vídeo a partir de uma imagem e legenda"""
+def get_image_url_from_wordpress(image_id):
+    """Busca a URL da imagem no WordPress usando a API REST"""
     try:
-        logger.info("🎬 Criando vídeo a partir da imagem...")
+        logger.info(f"📡 Buscando imagem {image_id} no WordPress...")
         
-        # 1. Baixar a imagem
-        response = requests.get(image_url)
-        img = Image.open(BytesIO(response.content))
+        response = requests.get(f"{WORDPRESS_URL}{image_id}", timeout=10)
         
-        # 2. Redimensionar para formato Reel (9:16)
-        reel_width, reel_height = 1080, 1920
-        img = img.resize((reel_width, reel_height), Image.LANCZOS)
-        
-        # 3. Adicionar legenda na imagem (opcional)
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.truetype("arial.ttf", 60)
-        except:
-            font = ImageFont.load_default()
-        
-        # Adicionar texto (simplificado)
-        draw.text((50, 50), caption[:100], fill="white", font=font)
-        
-        # 4. Salvar como MP4 (imagem estática com 10 segundos)
-        video_path = "/tmp/video_reel.mp4"
-        img.save(video_path, format='MP4', duration=10000)  # 10 segundos
-        
-        # 5. Fazer upload para Cloudinary
-        upload_result = cloudinary.uploader.upload(
-            video_path,
-            resource_type="video",
-            folder="boca_reels",
-            public_id=f"reel_{int(time.time())}"
-        )
-        
-        logger.info(f"✅ Vídeo criado: {upload_result['secure_url']}")
-        return upload_result['secure_url']
-        
+        if response.status_code == 200:
+            media_data = response.json()
+            image_url = media_data.get('source_url')  # URL completa da imagem
+            logger.info(f"✅ Imagem encontrada: {image_url}")
+            return image_url
+        else:
+            logger.error(f"❌ Erro ao buscar imagem: {response.status_code}")
+            return None
+            
     except Exception as e:
-        logger.error(f"❌ Erro ao criar vídeo: {str(e)}")
+        logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
 def publicar_facebook(video_url, caption):
@@ -79,14 +46,12 @@ def publicar_facebook(video_url, caption):
         if '/upload/' in video_url and '/f_mp4/' not in video_url:
             video_url = video_url.replace('/upload/', '/upload/f_mp4/')
         
-        # Parâmetros da API
         params = {
             'access_token': PAGE_TOKEN_BOCA,
             'file_url': video_url,
-            'description': caption[:1000]
+            'description': caption[:1000] + "\n\nLeia a matéria completa no site! 📖"
         }
         
-        # Publicar
         response = requests.post(
             'https://graph.facebook.com/v23.0/213776928485804/videos',
             params=params,
@@ -95,7 +60,6 @@ def publicar_facebook(video_url, caption):
         
         if response.status_code == 200:
             logger.info("🎉 ✅ VÍDEO PUBLICADO NO FACEBOOK!")
-            logger.info(f"📦 ID: {response.json().get('id')}")
             return True
         else:
             logger.error(f"❌ Erro: {response.text}")
@@ -110,60 +74,64 @@ def handle_webhook():
     try:
         logger.info("📍 Recebendo dados do WordPress...")
         
-        # Debug dos dados recebidos
-        logger.info(f"📦 Dados recebidos: {request.data}")
+        data = request.json
+        logger.info("📦 Dados recebidos com sucesso!")
         
-        # Tenta parsear os dados
-        data = request.json if request.json else {}
-        logger.info(f"🎯 Dados JSON: {data}")
+        # 🔥 EXTRAIR ID DA IMAGEM do post_meta
+        post_meta = data.get('post_meta', {})
+        thumbnail_id = post_meta.get('_thumbnail_id', [None])[0]  # Pega o primeiro valor do array
         
-        # Extrai imagem e texto (campos do WordPress)
-        image_url = data.get('image_url') or data.get('url') or data.get('featured_image')
-        caption = data.get('caption') or data.get('title') or data.get('content') or data.get('excerpt')
+        if not thumbnail_id:
+            logger.error("❌ Nenhum ID de imagem encontrado")
+            return "❌ ID da imagem não encontrado", 400
         
-        logger.info(f"🖼️ Imagem: {image_url}")
-        logger.info(f"📋 Texto: {caption}")
+        caption = data.get('post', {}).get('post_title') or data.get('post', {}).get('post_excerpt')
         
-        if not image_url or not caption:
-            logger.error("❌ Dados incompletos: precisa de image_url e caption")
-            return "❌ Envie image_url e caption", 400
+        logger.info(f"🖼️ ID da Imagem: {thumbnail_id}")
+        logger.info(f"📋 Legenda: {caption}")
         
-        # Cria vídeo da imagem
-        video_url = criar_video_da_imagem(image_url, caption)
+        if not caption:
+            logger.error("❌ Legenda não encontrada")
+            return "❌ Legenda não encontrada", 400
         
-        if not video_url:
-            return "❌ Erro ao criar vídeo", 500
+        # 🔥 BUSCAR URL DA IMAGEM no WordPress
+        image_url = get_image_url_from_wordpress(thumbnail_id)
         
-        # Publica no Facebook
-        success = publicar_facebook(video_url, caption)
+        if not image_url:
+            logger.error("❌ Não foi possível obter a URL da imagem")
+            return "❌ Erro ao buscar imagem", 500
         
-        if success:
-            return "✅ Reel criado e publicado com sucesso!", 200
-        else:
-            return "❌ Erro ao publicar", 500
-            
+        logger.info(f"✅ URL da imagem: {image_url}")
+        
+        # 🔥 AQUI VOCÊ CRIARIA O VÍDEO COM A IMAGEM
+        # Por enquanto, teste com vídeo existente
+        video_url_test = "https://res.cloudinary.com/dj1h27ueg/video/upload/v1755717469/boca_reels/i6pys2w5cwwu1t1zfvs4.mp4"
+        
+        logger.info("✅ Dados válidos - Publicando...")
+        
+        # Publicar em background
+        thread = threading.Thread(target=publicar_facebook, args=(video_url_test, caption))
+        thread.start()
+        
+        return "✅ Recebido! Publicação em andamento...", 200
+        
     except Exception as e:
-        logger.error(f"❌ Erro no webhook: {str(e)}")
-        return "Erro interno", 500
+        logger.error(f"❌ Erro: {str(e)}")
+        return "Erro", 500
 
-@app.route('/teste-imagem')
-def teste_imagem():
-    """Teste com imagem real"""
-    image_url = "https://exemplo.com/imagem.jpg"  # URL de uma imagem real
-    caption = "Teste de Reel com imagem - Sistema funcionando! 🎉"
-    
-    video_url = criar_video_da_imagem(image_url, caption)
-    if video_url:
-        success = publicar_facebook(video_url, caption)
-        if success:
-            return "🎉 Reel criado e publicado!", 200
-    
-    return "❌ Erro no teste", 400
+@app.route('/teste-imagem/<image_id>')
+def teste_imagem(image_id):
+    """Teste manual de busca de imagem"""
+    image_url = get_image_url_from_wordpress(image_id)
+    if image_url:
+        return {"image_url": image_url}, 200
+    else:
+        return {"error": "Imagem não encontrada"}, 404
 
 @app.route('/')
 def home():
-    return "🚀 Sistema pronto para transformar imagens em Reels!", 200
+    return "🚀 Sistema Funcionando! Buscando imagens do WordPress...", 200
 
 if __name__ == '__main__':
-    logger.info("🎉 Sistema de criação de Reels pronto!")
+    logger.info("✅ Servidor pronto - Buscando imagens do WordPress!")
     app.run(host='0.0.0.0', port=10000)
