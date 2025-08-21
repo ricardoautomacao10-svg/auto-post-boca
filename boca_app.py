@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configurações
+# Configurações - NOMES MANTIDOS COMO VOCÊ QUER!
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
-INSTAGRAM_ACCOUNT_ID = '17841464327364824'  # ID do Instagram
-FACEBOOK_PAGE_ID = '213776928485804'  # ID do Facebook
+INSTAGRAM_ACCOUNT_ID = '17841464327364824'
+FACEBOOK_PAGE_ID = '213776928485804'
 WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
 def criar_legenda_completa(data):
@@ -24,17 +24,14 @@ def criar_legenda_completa(data):
         post_data = data.get('post', {})
         post_meta = data.get('post_meta', {})
         
-        # 1. Pega o TÍTULO e formata
         titulo = post_data.get('post_title', '')
         titulo_formatado = f"🚨 **{titulo.upper()}**\n\n"
         
-        # 2. Pega o RESUMO
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
             conteudo = post_data.get('post_content', '')
             resumo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
         
-        # 3. Monta a legenda
         legenda = (
             f"{titulo_formatado}"
             f"@bocanotrombonelitoral\n\n"
@@ -74,59 +71,47 @@ def gerar_video_reels(image_url, titulo):
     try:
         logger.info("🎬 Gerando vídeo Reels profissional...")
         
-        # Download da imagem
         response = requests.get(image_url, timeout=30)
         if response.status_code != 200:
             raise Exception("Erro ao baixar imagem")
         
-        # Salva imagem temporária
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_img:
             tmp_img.write(response.content)
             image_path = tmp_img.name
         
-        # Configurações do vídeo
         duration = 10
         width, height = 1080, 1920
         
-        # Cria clipe da imagem
         image_clip = ImageClip(image_path).resize(height=1600)
         image_clip = image_clip.set_position(('center', 'center'))
         image_clip = image_clip.set_duration(duration)
         
-        # Fundo preto
         background = ColorClip(size=(width, height), color=[0, 0, 0], duration=duration)
         
-        # Overlay escuro
         overlay = ColorClip(size=(width, height), color=[0, 0, 0], duration=duration)
         overlay = overlay.set_opacity(0.3)
         
-        # CAIXA VERMELHA de categoria
         red_box = ColorClip(size=(width, 100), color=[220, 0, 0], duration=duration)
         red_box = red_box.set_position(('center', 200))
         red_box = red_box.set_opacity(0.9)
         
-        # Texto da categoria
-        categoria_text = TextClip("ÚLTIMAS NOTÍCIAS", fontsize=40, color='white', font='Impact')
+        categoria_text = TextClip("BOCA NO TROMBONE", fontsize=40, color='white', font='Impact')
         categoria_text = categoria_text.set_position(('center', 215))
         categoria_text = categoria_text.set_duration(duration)
         
-        # CAIXA BRANCA com título
         white_box = ColorClip(size=(900, 300), color=[255, 255, 255], duration=duration)
         white_box = white_box.set_position(('center', 900))
         white_box = white_box.set_opacity(0.9)
         
-        # Texto do título
         title_text = TextClip(titulo.upper(), fontsize=50, color='black', font='Impact', 
                              size=(800, 250), method='caption', align='center')
         title_text = title_text.set_position(('center', 920))
         title_text = title_text.set_duration(duration)
         
-        # Logo
         logo_text = TextClip("BOCA NO TROMBONE", fontsize=50, color='white', font='Impact')
         logo_text = logo_text.set_position(('center', 100))
         logo_text = logo_text.set_duration(duration)
         
-        # Compõe todos os elementos
         video = CompositeVideoClip([
             background,
             image_clip,
@@ -138,7 +123,6 @@ def gerar_video_reels(image_url, titulo):
             logo_text
         ], size=(width, height))
         
-        # Salva vídeo temporário
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
             video_path = tmp_video.name
             video.write_videofile(video_path, fps=24, codec='libx264', audio=False, verbose=False, logger=None)
@@ -160,12 +144,11 @@ def publicar_facebook(video_path, caption):
             logger.error("❌ Token não configurado")
             return False
             
-        # Upload para Facebook
         files = {'source': open(video_path, 'rb')}
         params = {
             'access_token': PAGE_TOKEN_BOCA,
             'description': caption,
-            'title': 'Últimas Notícias - Boca no Trombone'
+            'title': 'BOCA NO TROMBONE - Últimas Notícias'
         }
         
         response = requests.post(
@@ -195,7 +178,6 @@ def publicar_instagram(video_path, caption):
             logger.error("❌ Token não configurado")
             return False
         
-        # Passo 1: Criar objeto de mídia
         files = {'video': open(video_path, 'rb')}
         create_params = {
             'access_token': PAGE_TOKEN_BOCA,
@@ -221,14 +203,13 @@ def publicar_instagram(video_path, caption):
         
         logger.info(f"✅ Mídia Instagram criada: {creation_id}")
         
-        # Passo 2: Publicar
         publish_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'creation_id': creation_id
         }
         
         import time
-        time.sleep(10)  # Aguarda processamento
+        time.sleep(10)
         
         publish_response = requests.post(
             f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media_publish',
@@ -253,7 +234,6 @@ def handle_webhook():
         logger.info("📍 Recebendo dados do WordPress...")
         data = request.json
         
-        # Extrair ID da imagem
         post_meta = data.get('post_meta', {})
         thumbnail_id = post_meta.get('_thumbnail_id', [None])[0]
         
@@ -261,28 +241,23 @@ def handle_webhook():
             logger.error("❌ Nenhum ID de imagem encontrado")
             return "❌ ID da imagem não encontrado", 400
         
-        # Criar legenda
         caption = criar_legenda_completa(data)
         
-        # Buscar URL da imagem
         image_url = get_image_url_from_wordpress(thumbnail_id)
         if not image_url:
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
-        # Gerar vídeo profissional
         video_path = gerar_video_reels(image_url, data.get('post', {}).get('post_title', ''))
         
         if not video_path:
             logger.error("❌ Falha ao gerar vídeo")
             return "❌ Erro ao gerar vídeo", 500
         
-        # Publicar em ambas as plataformas
         def publicar_tudo():
             facebook_ok = publicar_facebook(video_path, caption)
             instagram_ok = publicar_instagram(video_path, caption)
             
-            # Limpar arquivo temporário
             os.unlink(video_path)
             
             if facebook_ok and instagram_ok:
@@ -290,7 +265,6 @@ def handle_webhook():
             else:
                 logger.warning("⚠️ Publicação em uma das plataformas falhou")
         
-        # Inicia publicação em background
         thread = threading.Thread(target=publicar_tudo)
         thread.start()
         
