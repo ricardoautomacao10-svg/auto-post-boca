@@ -4,9 +4,6 @@ import os
 import threading
 import logging
 import re
-import tempfile
-from PIL import Image
-import io
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,50 +16,28 @@ INSTAGRAM_ACCOUNT_ID = '17841464327364824'
 FACEBOOK_PAGE_ID = '213776928485804'
 WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
-def converter_para_jpg(image_url):
-    """Converte qualquer imagem para JPG (Facebook não aceita AVIF/WebP como vídeo)"""
-    try:
-        logger.info(f"🔄 Convertendo imagem para JPG: {image_url}")
-        
-        response = requests.get(image_url, timeout=30)
-        if response.status_code != 200:
-            return image_url  # Fallback para URL original
-            
-        # Verifica se é AVIF ou WebP
-        if image_url.lower().endswith(('.avif', '.webp')):
-            img = Image.open(io.BytesIO(response.content))
-            
-            # Converte para JPG em memória
-            jpg_buffer = io.BytesIO()
-            img.convert('RGB').save(jpg_buffer, format='JPEG', quality=95)
-            jpg_buffer.seek(0)
-            
-            # Faz upload para ImgBB ou serviço temporário (simplificado - usa URL original como fallback)
-            logger.warning("⚠️ Imagem AVIF/WEBP detectada - usando fallback para URL original")
-            return image_url
-            
-        return image_url
-        
-    except Exception as e:
-        logger.error(f"❌ Erro na conversão: {str(e)}")
-        return image_url  # Fallback
-
 def criar_legenda_completa(data):
-    """Monta a legenda profissional para Reels - SEM HTML."""
+    """Monta a legenda profissional para Reels."""
     try:
         post_data = data.get('post', {})
         
+        # Título limpo
         titulo = post_data.get('post_title', '')
         titulo = re.sub('<.*?>', '', titulo)
+        titulo = titulo.replace('&nbsp;', ' ').replace('&#8217;', "'")
         
+        # Resumo limpo
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
             conteudo = post_data.get('post_content', '')
             conteudo = re.sub('<.*?>', '', conteudo)
-            resumo = conteudo[:150] + "..." if len(conteudo) > 150 else conteudo
+            conteudo = conteudo.replace('&nbsp;', ' ').replace('&#8217;', "'")
+            resumo = conteudo[:120] + "..." if len(conteudo) > 120 else conteudo
         else:
             resumo = re.sub('<.*?>', '', resumo)
+            resumo = resumo.replace('&nbsp;', ' ').replace('&#8217;', "'")
         
+        # Legenda PERFEITA
         legenda = (
             f"🚨 {titulo.upper()}\n\n"
             f"@bocanotrombonelitoral\n\n"
@@ -76,13 +51,13 @@ def criar_legenda_completa(data):
         
     except Exception as e:
         logger.error(f"❌ Erro ao criar legenda: {str(e)}")
-        return data.get('post', {}).get('post_title', '') + "\n\nLeia a matéria completa no site! 📖"
+        return "🚨 Últimas Notícias do Litoral Norte!\n\n@bocanotrombonelitoral\n\n📲 Leia mais no link da bio!\n\n#Noticias #LitoralNorte"
 
 def get_image_url_from_wordpress(image_id):
     """Busca a URL da imagem no WordPress"""
     try:
         logger.info(f"📡 Buscando imagem {image_id} no WordPress...")
-        response = requests.get(f"{WORDPRESS_URL}{image_id}", timeout=10)
+        response = requests.get(f"{WORDPRESS_URL}{image_id}", timeout=15)
         
         if response.status_code == 200:
             media_data = response.json()
@@ -97,16 +72,16 @@ def get_image_url_from_wordpress(image_id):
         logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
-def publicar_facebook(image_url, caption):
-    """Publica no Facebook como VÍDEO"""
+def publicar_facebook_fallback(image_url, caption):
+    """Publica como FOTO no Facebook (MÉTODO QUE FUNCIONA)"""
     try:
-        logger.info("📤 Publicando no Facebook...")
+        logger.info("📤 Publicando FOTO no Facebook...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token do Facebook não configurado")
             return False
         
-        # Tenta método alternativo - como foto primeiro
+        # Método FOTO - 100% funcional
         params = {
             'access_token': PAGE_TOKEN_BOCA,
             'message': caption,
@@ -116,30 +91,30 @@ def publicar_facebook(image_url, caption):
         response = requests.post(
             f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/photos',
             params=params,
-            timeout=60
+            timeout=45
         )
         
         if response.status_code == 200:
             logger.info("🎉 ✅ FOTO PUBLICADA NO FACEBOOK!")
             return True
         else:
-            logger.error(f"❌ Erro Facebook (foto): {response.text}")
+            logger.error(f"❌ Erro Facebook: {response.text}")
             return False
             
     except Exception as e:
         logger.error(f"❌ Erro na publicação Facebook: {str(e)}")
         return False
 
-def publicar_instagram(image_url, caption):
-    """Publica no Instagram como FOTO (fallback)"""
+def publicar_instagram_fallback(image_url, caption):
+    """Publica como FOTO no Instagram (MÉTODO QUE FUNCIONA)"""
     try:
-        logger.info("📤 Publicando no Instagram...")
+        logger.info("📤 Publicando FOTO no Instagram...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token do Instagram não configurado")
             return False
         
-        # Método FOTO (fallback) - mais confiável
+        # Passo 1: Criar objeto de mídia
         create_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'caption': caption,
@@ -149,7 +124,7 @@ def publicar_instagram(image_url, caption):
         create_response = requests.post(
             f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
             params=create_params,
-            timeout=60
+            timeout=45
         )
         
         if create_response.status_code != 200:
@@ -163,10 +138,11 @@ def publicar_instagram(image_url, caption):
         
         logger.info(f"✅ Mídia criada: {creation_id}")
         
-        # Aguarda processamento
+        # Aguarda 25 segundos para processamento do Instagram
         import time
-        time.sleep(10)
+        time.sleep(25)
         
+        # Passo 2: Publicar
         publish_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'creation_id': creation_id
@@ -175,7 +151,7 @@ def publicar_instagram(image_url, caption):
         publish_response = requests.post(
             f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media_publish',
             params=publish_params,
-            timeout=60
+            timeout=45
         )
         
         if publish_response.status_code == 200:
@@ -212,17 +188,21 @@ def webhook_boca():
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
-        # Converte AVIF/WEBP para JPG se necessário
-        image_url = converter_para_jpg(image_url)
-        
         def publicar_tudo():
-            facebook_ok = publicar_facebook(image_url, caption)
-            instagram_ok = publicar_instagram(image_url, caption)
+            # Primeiro tenta Instagram
+            instagram_ok = publicar_instagram_fallback(image_url, caption)
+            
+            # Depois Facebook
+            facebook_ok = publicar_facebook_fallback(image_url, caption)
             
             if facebook_ok and instagram_ok:
                 logger.info("🎉 ✅ PUBLICADO EM AMBAS AS PLATAFORMAS!")
+            elif facebook_ok:
+                logger.info("✅ PUBLICADO SOMENTE NO FACEBOOK!")
+            elif instagram_ok:
+                logger.info("✅ PUBLICADO SOMENTE NO INSTAGRAM!")
             else:
-                logger.warning("⚠️ Publicação em uma das plataformas falhou")
+                logger.error("❌ FALHA EM AMBAS AS PLATAFORMAS")
         
         thread = threading.Thread(target=publicar_tudo)
         thread.start()
@@ -233,9 +213,13 @@ def webhook_boca():
         logger.error(f"❌ Erro no webhook: {str(e)}")
         return "Erro interno", 500
 
+@app.route('/teste')
+def teste():
+    return "✅ Sistema Boca no Trombone ONLINE! Use /webhook-boca para publicar.", 200
+
 @app.route('/')
 def home():
-    return "🚀 Sistema Funcionando! Boca no Trombone - Publicador", 200
+    return "🚀 Sistema Funcionando! Boca no Trombone - Publicador Automático", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
