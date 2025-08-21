@@ -3,26 +3,23 @@ import requests
 import os
 import threading
 import logging
-import tempfile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configurações
+# Configurações - TUDO CORRETO!
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
-INSTAGRAM_ACCOUNT_ID = '17841464327364824'
-FACEBOOK_PAGE_ID = '213776928485804'
+INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_ACCOUNT_ID', '17841464327364824')
+FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '213776928485804')
 WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
 def criar_legenda_completa(data):
-    """Monta a legenda no formato profissional para Reels."""
+    """Monta a legenda profissional para Reels."""
     try:
         post_data = data.get('post', {})
-        
         titulo = post_data.get('post_title', '')
-        titulo_formatado = f"🚨 **{titulo.upper()}**\n\n"
         
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
@@ -30,7 +27,7 @@ def criar_legenda_completa(data):
             resumo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
         
         legenda = (
-            f"{titulo_formatado}"
+            f"🚨 {titulo.upper()}\n\n"
             f"@bocanotrombonelitoral\n\n"
             f"---\n\n"
             f"{resumo}\n\n"
@@ -64,29 +61,28 @@ def get_image_url_from_wordpress(image_id):
         return None
 
 def publicar_facebook(image_url, caption):
-    """Publica IMAGEM no Facebook (como vídeo estático)"""
+    """Publica no Facebook"""
     try:
         logger.info("📤 Publicando no Facebook...")
         
         if not PAGE_TOKEN_BOCA:
-            logger.error("❌ Token não configurado")
+            logger.error("❌ Token do Facebook não configurado")
             return False
         
-        # Usa a PRÓPRIA IMAGEM como vídeo (truque do Facebook)
         params = {
             'access_token': PAGE_TOKEN_BOCA,
-            'description': caption,
-            'url': image_url  # Facebook converte imagem em vídeo automaticamente
+            'message': caption,
+            'url': image_url
         }
         
         response = requests.post(
-            f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/videos',
+            f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/photos',
             params=params,
             timeout=120
         )
         
         if response.status_code == 200:
-            logger.info("🎉 ✅ CONTEÚDO PUBLICADO NO FACEBOOK!")
+            logger.info("🎉 ✅ FOTO PUBLICADA NO FACEBOOK!")
             return True
         else:
             logger.error(f"❌ Erro Facebook: {response.text}")
@@ -97,19 +93,19 @@ def publicar_facebook(image_url, caption):
         return False
 
 def publicar_instagram(image_url, caption):
-    """Publica IMAGEM no Instagram"""
+    """Publica no Instagram"""
     try:
         logger.info("📤 Publicando no Instagram...")
         
         if not PAGE_TOKEN_BOCA:
-            logger.error("❌ Token não configurado")
+            logger.error("❌ Token do Instagram não configurado")
             return False
         
-        # Passo 1: Criar objeto de mídia para FOTO
+        # Passo 1: Criar objeto de mídia
         create_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'caption': caption,
-            'image_url': image_url  # URL da imagem direto
+            'image_url': image_url
         }
         
         create_response = requests.post(
@@ -119,7 +115,7 @@ def publicar_instagram(image_url, caption):
         )
         
         if create_response.status_code != 200:
-            logger.error(f"❌ Erro ao criar mídia Instagram: {create_response.text}")
+            logger.error(f"❌ Erro ao criar mídia: {create_response.text}")
             return False
         
         creation_id = create_response.json().get('id')
@@ -127,7 +123,7 @@ def publicar_instagram(image_url, caption):
             logger.error("❌ Não foi possível obter ID de criação")
             return False
         
-        logger.info(f"✅ Mídia Instagram criada: {creation_id}")
+        logger.info(f"✅ Mídia criada: {creation_id}")
         
         # Passo 2: Publicar
         publish_params = {
@@ -142,10 +138,10 @@ def publicar_instagram(image_url, caption):
         )
         
         if publish_response.status_code == 200:
-            logger.info("🎉 ✅ PUBLICADO NO INSTAGRAM!")
+            logger.info("🎉 ✅ FOTO PUBLICADA NO INSTAGRAM!")
             return True
         else:
-            logger.error(f"❌ Erro publicação Instagram: {publish_response.text}")
+            logger.error(f"❌ Erro publicação: {publish_response.text}")
             return False
             
     except Exception as e:
@@ -153,10 +149,13 @@ def publicar_instagram(image_url, caption):
         return False
 
 @app.route('/webhook-boca', methods=['POST'])
-def handle_webhook():
+def webhook_boca():
     try:
         logger.info("📍 Recebendo dados do WordPress...")
         data = request.json
+        
+        if not data:
+            return "❌ Dados inválidos", 400
         
         post_meta = data.get('post_meta', {})
         thumbnail_id = post_meta.get('_thumbnail_id', [None])[0]
@@ -166,8 +165,8 @@ def handle_webhook():
             return "❌ ID da imagem não encontrado", 400
         
         caption = criar_legenda_completa(data)
-        
         image_url = get_image_url_from_wordpress(thumbnail_id)
+        
         if not image_url:
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
@@ -187,13 +186,14 @@ def handle_webhook():
         return "✅ Recebido! Publicação em andamento...", 200
         
     except Exception as e:
-        logger.error(f"❌ Erro: {str(e)}")
-        return "Erro", 500
+        logger.error(f"❌ Erro no webhook: {str(e)}")
+        return "Erro interno", 500
 
 @app.route('/')
 def home():
     return "🚀 Sistema Funcionando! Boca no Trombone - Publicador Automático", 200
 
 if __name__ == '__main__':
-    logger.info("✅ Servidor pronto!")
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"✅ Servidor pronto na porta {port}!")
+    app.run(host='0.0.0.0', port=port)
