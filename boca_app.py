@@ -4,9 +4,7 @@ import logging
 import requests
 import time
 from threading import Thread
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance
-import io
-import textwrap
+import json
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -32,123 +30,88 @@ def extrair_categoria(data):
     except:
         return 'UBATUBA'
 
-def criar_imagem_reel(titulo, imagem_url, categoria):
-    """CRIA IMAGEM ESTILIZADA NO FORMATO REEL 1080x1920"""
+def criar_imagem_api(titulo, imagem_url, categoria):
+    """USA API EXTERNA para criar imagem - SEM Pillow"""
     try:
-        # 📏 Dimensões do Reel
-        width, height = 1080, 1920
+        # 📋 Dados para a API de criação de imagem
+        payload = {
+            'template': 'reel_1080x1920',
+            'data': {
+                'titulo': titulo,
+                'categoria': categoria,
+                'imagem_url': imagem_url,
+                'layout': {
+                    'fundo': 'preto',
+                    'caixa_primaria': 'vermelho',
+                    'caixa_texto': 'branco',
+                    'texto_cor': 'preto',
+                    'seta': 'amarelo'
+                }
+            }
+        }
         
-        # 🎨 Criar imagem de fundo PRETO
-        imagem = Image.new('RGB', (width, height), color='black')
-        draw = ImageDraw.Draw(imagem)
-        
-        # 📥 Baixar imagem do WordPress
-        if imagem_url and imagem_url.startswith('http'):
-            response = requests.get(imagem_url)
-            img_wp = Image.open(io.BytesIO(response.content))
-            
-            # Redimensionar e posicionar a imagem
-            img_wp = img_wp.resize((900, 600), Image.LANCZOS)
-            imagem.paste(img_wp, (90, 200))
-        
-        # 🟥 CAIXA PRIMÁRIA VERMELHA
-        draw.rectangle([100, 1000, 980, 1200], fill='#e60000')
-        
-        # ⬜ CAIXA BRANCA INTERNA
-        draw.rectangle([120, 1020, 960, 1180], fill='white')
-        
-        # ✏️ TEXTO DA MANCHETE (preto)
-        try:
-            font = ImageFont.truetype("Arial", 36)
-        except:
-            font = ImageFont.load_default()
-        
-        # Quebrar texto em múltiplas linhas
-        lines = textwrap.wrap(titulo, width=40)
-        y_text = 1040
-        for line in lines:
-            draw.text((140, y_text), line, font=font, fill='black')
-            y_text += 40
-        
-        # 🏷️ CATEGORIA (canto superior esquerdo)
-        draw.rectangle([50, 50, 250, 100], fill='#e60000')
-        draw.text((70, 60), categoria, font=font, fill='white')
-        
-        # 🔴 LOGO CENTRALIZADO
-        draw.ellipse([490, 1300, 590, 1400], fill='#e60000')
-        draw.text((510, 1320), "BOCA", font=font, fill='white')
-        
-        # ⬇️ SETA AMARELA
-        draw.polygon([1020, 1800, 1040, 1820, 1060, 1800], fill='yellow')
-        
-        # 💾 Salvar imagem temporária
-        img_path = f"/tmp/reel_{int(time.time())}.jpg"
-        imagem.save(img_path, 'JPEG')
-        
-        return img_path
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao criar imagem: {str(e)}")
-        return None
-
-def publicar_no_instagram(titulo, imagem_url, categoria):
-    """PUBLICA NO INSTAGRAM COM IMAGEM ESTILIZADA"""
-    try:
-        logger.info("🎨 Criando imagem estilizada...")
-        
-        # 1. CRIAR IMAGEM ESTILIZADA
-        img_path = criar_imagem_reel(titulo, imagem_url, categoria)
-        
-        if not img_path:
-            return False
-        
-        # 2. Upload para servidor temporário ( necessário para API do Instagram)
-        upload_url = "https://api.imgbb.com/1/upload"  # Servidor de imagens gratuito
-        with open(img_path, 'rb') as f:
-            response = requests.post(upload_url, files={'image': f})
+        # 🎨 API gratuita para criação de imagens (exemplo)
+        response = requests.post(
+            'https://api.imgbb.com/1/upload',
+            data={'key': 'free_api_key', 'image': json.dumps(payload)}
+        )
         
         if response.status_code == 200:
-            image_url = response.json()['data']['url']
+            return response.json()['data']['url']
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Erro API imagem: {str(e)}")
+        return imagem_url  # Fallback: usa imagem original
+
+def publicar_no_instagram(titulo, imagem_url, categoria):
+    """PUBLICA NO INSTAGRAM"""
+    try:
+        logger.info("📤 Publicando...")
+        
+        # 🎨 Usar imagem original (SEM edição por enquanto)
+        image_url_final = imagem_url
+        
+        # 📋 Dados para publicação
+        create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media"
+        
+        payload = {
+            'image_url': image_url_final,
+            'caption': f"🚨 {titulo}\n\nCategoria: {categoria}\n\n#Noticias #Brasil #LitoralNorte",
+            'access_token': INSTAGRAM_ACCESS_TOKEN
+        }
+        
+        response = requests.post(create_url, data=payload)
+        result = response.json()
+        
+        if 'id' in result:
+            creation_id = result['id']
             
-            # 3. PUBLICAR NO INSTAGRAM
-            create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media"
-            
-            payload = {
-                'image_url': image_url,
-                'caption': f"🚨 {titulo}\n\n#Noticias #Brasil #LitoralNorte",
+            # ⏳ Aguardar e publicar
+            time.sleep(5)
+            publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media_publish"
+            publish_payload = {
+                'creation_id': creation_id,
                 'access_token': INSTAGRAM_ACCESS_TOKEN
             }
             
-            response = requests.post(create_url, data=payload)
-            result = response.json()
+            publish_response = requests.post(publish_url, data=publish_payload)
+            publish_result = publish_response.json()
             
-            if 'id' in result:
-                creation_id = result['id']
-                
-                # 4. PUBLICAR EFETIVAMENTE
-                time.sleep(5)
-                publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media_publish"
-                publish_payload = {
-                    'creation_id': creation_id,
-                    'access_token': INSTAGRAM_ACCESS_TOKEN
-                }
-                
-                publish_response = requests.post(publish_url, data=publish_payload)
-                publish_result = publish_response.json()
-                
-                if 'id' in publish_result:
-                    logger.info(f"✅ REEL PUBLICADO! ID: {publish_result['id']}")
-                    return True
+            if 'id' in publish_result:
+                logger.info(f"✅ PUBLICADO! ID: {publish_result['id']}")
+                return True
         
-        logger.error("❌ Erro na publicação")
+        logger.error(f"❌ Erro: {result}")
         return False
             
     except Exception as e:
-        logger.error(f"❌ Erro: {str(e)}")
+        logger.error(f"❌ Erro publicação: {str(e)}")
         return False
 
 def worker_publicacao():
-    """Processa a fila de publicação 24x7"""
+    """Processa a fila 24x7"""
     while True:
         if fila_publicacao:
             titulo, imagem_url, categoria = fila_publicacao.pop(0)
@@ -161,7 +124,7 @@ Thread(target=worker_publicacao, daemon=True).start()
 
 @app.route('/')
 def index():
-    return "✅ Sistema rodando - Gerando Reels 1080x1920"
+    return "✅ Sistema rodando - Publicação automática"
 
 @app.route('/webhook-boca', methods=['POST'])
 def webhook_boca():
@@ -175,14 +138,14 @@ def webhook_boca():
         imagem_url = data.get('post_thumbnail', '')
         
         logger.info(f"📝 {titulo}")
-        logger.info(f"🏷️ {categoria}")
+        logger.info(f"🏷️ {categoria}") 
         logger.info(f"🖼️ {imagem_url}")
         
         if imagem_url and titulo:
             fila_publicacao.append((titulo, imagem_url, categoria))
             logger.info(f"📥 Na fila: {len(fila_publicacao)}")
             
-        return jsonify({'status': 'success', 'message': 'Reel em produção'}), 200
+        return jsonify({'status': 'success', 'message': 'Em produção'}), 200
         
     except Exception as e:
         logger.error(f"❌ Erro: {str(e)}")
@@ -190,5 +153,5 @@ def webhook_boca():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema de Reels iniciado!")
+    logger.info("🚀 Sistema iniciado - Publicando 24/7")
     app.run(host='0.0.0.0', port=port, debug=False)
