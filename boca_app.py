@@ -4,6 +4,8 @@ import os
 import threading
 import logging
 import re
+import tempfile
+import subprocess
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,12 +23,10 @@ def criar_legenda_completa(data):
     try:
         post_data = data.get('post', {})
         
-        # Título limpo
         titulo = post_data.get('post_title', '')
         titulo = re.sub('<.*?>', '', titulo)
         titulo = titulo.replace('&nbsp;', ' ').replace('&#8217;', "'")
         
-        # Resumo limpo
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
             conteudo = post_data.get('post_content', '')
@@ -37,7 +37,6 @@ def criar_legenda_completa(data):
             resumo = re.sub('<.*?>', '', resumo)
             resumo = resumo.replace('&nbsp;', ' ').replace('&#8217;', "'")
         
-        # Legenda PERFEITA
         legenda = (
             f"🚨 {titulo.upper()}\n\n"
             f"@bocanotrombonelitoral\n\n"
@@ -72,30 +71,88 @@ def get_image_url_from_wordpress(image_id):
         logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
-def publicar_facebook_fallback(image_url, caption):
-    """Publica como FOTO no Facebook (MÉTODO QUE FUNCIONA)"""
+def criar_video_reels_profissional(image_url, titulo):
+    """Cria vídeo estático profissional para Reels com layout EXATO"""
     try:
-        logger.info("📤 Publicando FOTO no Facebook...")
+        logger.info("🎬 Criando REELS profissional...")
+        
+        # Download da imagem
+        response = requests.get(image_url, timeout=30)
+        if response.status_code != 200:
+            return None
+        
+        # Salva imagem temporária
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_img:
+            tmp_img.write(response.content)
+            image_path = tmp_img.name
+        
+        # Cria vídeo estático de 15 segundos (1080x1920 - Formato Reels)
+        video_path = image_path.replace('.jpg', '.mp4')
+        
+        # Comando ffmpeg para criar vídeo estático com overlay
+        cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1',
+            '-i', image_path,
+            '-c:v', 'libx264',
+            '-t', '15',  # 15 segundos
+            '-pix_fmt', 'yuv420p',
+            '-vf', '''
+            scale=1080:1920:force_original_aspect_ratio=increase,
+            crop=1080:1920,
+            drawbox=0:0:1080:1920:black@0.4:t=fill,
+            drawbox=0:100:1080:80:red@0.9:t=fill,
+            drawbox=40:900:1000:300:white@0.9:t=fill,
+            drawtext=text=\'BOCA NO TROMBONE\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=60:fontcolor=white:x=(w-text_w)/2:y=120,
+            drawtext=text=\'ÚLTIMAS NOTÍCIAS\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y=220,
+            drawtext=text=\'''' + titulo.replace("'", "'\\\\''") + '''\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=48:fontcolor=black:x=(w-text_w)/2:y=950:box=1:boxcolor=white@0.0:boxborderw=10,
+            drawtext=text=\'@bocanotrombonelitoral\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=1850
+            ''',
+            video_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Limpa arquivo temporário
+        os.unlink(image_path)
+        
+        if result.returncode != 0:
+            logger.error(f"❌ Erro ffmpeg: {result.stderr}")
+            return None
+        
+        logger.info(f"✅ REELS profissional criado: {video_path}")
+        return video_path
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar REELS: {str(e)}")
+        return None
+
+def publicar_reels_facebook(video_path, caption):
+    """Publica REELS no Facebook"""
+    try:
+        logger.info("📤 Publicando REELS no Facebook...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token do Facebook não configurado")
             return False
         
-        # Método FOTO - 100% funcional
-        params = {
-            'access_token': PAGE_TOKEN_BOCA,
-            'message': caption,
-            'url': image_url
-        }
-        
-        response = requests.post(
-            f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/photos',
-            params=params,
-            timeout=45
-        )
+        with open(video_path, 'rb') as video_file:
+            files = {'source': video_file}
+            params = {
+                'access_token': PAGE_TOKEN_BOCA,
+                'description': caption,
+                'title': 'BOCA NO TROMBONE - Últimas Notícias'
+            }
+            
+            response = requests.post(
+                f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/videos',
+                params=params,
+                files=files,
+                timeout=120
+            )
         
         if response.status_code == 200:
-            logger.info("🎉 ✅ FOTO PUBLICADA NO FACEBOOK!")
+            logger.info("🎉 ✅ REELS PUBLICADO NO FACEBOOK!")
             return True
         else:
             logger.error(f"❌ Erro Facebook: {response.text}")
@@ -105,30 +162,32 @@ def publicar_facebook_fallback(image_url, caption):
         logger.error(f"❌ Erro na publicação Facebook: {str(e)}")
         return False
 
-def publicar_instagram_fallback(image_url, caption):
-    """Publica como FOTO no Instagram (MÉTODO QUE FUNCIONA)"""
+def publicar_reels_instagram(video_path, caption):
+    """Publica REELS no Instagram"""
     try:
-        logger.info("📤 Publicando FOTO no Instagram...")
+        logger.info("📤 Publicando REELS no Instagram...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token do Instagram não configurado")
             return False
         
-        # Passo 1: Criar objeto de mídia
-        create_params = {
-            'access_token': PAGE_TOKEN_BOCA,
-            'caption': caption,
-            'image_url': image_url
-        }
-        
-        create_response = requests.post(
-            f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
-            params=create_params,
-            timeout=45
-        )
+        with open(video_path, 'rb') as video_file:
+            files = {'video': video_file}
+            create_params = {
+                'access_token': PAGE_TOKEN_BOCA,
+                'caption': caption,
+                'media_type': 'REELS'
+            }
+            
+            create_response = requests.post(
+                f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
+                params=create_params,
+                files=files,
+                timeout=120
+            )
         
         if create_response.status_code != 200:
-            logger.error(f"❌ Erro ao criar mídia: {create_response.text}")
+            logger.error(f"❌ Erro ao criar Reels: {create_response.text}")
             return False
         
         creation_id = create_response.json().get('id')
@@ -136,13 +195,13 @@ def publicar_instagram_fallback(image_url, caption):
             logger.error("❌ Não foi possível obter ID de criação")
             return False
         
-        logger.info(f"✅ Mídia criada: {creation_id}")
+        logger.info(f"✅ Reels criado: {creation_id}")
         
-        # Aguarda 25 segundos para processamento do Instagram
+        # Aguarda 30 segundos para processamento
         import time
-        time.sleep(25)
+        time.sleep(30)
         
-        # Passo 2: Publicar
+        # Publicar
         publish_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'creation_id': creation_id
@@ -151,14 +210,14 @@ def publicar_instagram_fallback(image_url, caption):
         publish_response = requests.post(
             f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media_publish',
             params=publish_params,
-            timeout=45
+            timeout=120
         )
         
         if publish_response.status_code == 200:
-            logger.info("🎉 ✅ FOTO PUBLICADA NO INSTAGRAM!")
+            logger.info("🎉 ✅ REELS PUBLICADO NO INSTAGRAM!")
             return True
         else:
-            logger.error(f"❌ Erro publicação: {publish_response.text}")
+            logger.error(f"❌ Erro publicação Instagram: {publish_response.text}")
             return False
             
     except Exception as e:
@@ -188,38 +247,39 @@ def webhook_boca():
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
+        # Cria REELS profissional
+        titulo = data.get('post', {}).get('post_title', '')
+        video_path = criar_video_reels_profissional(image_url, titulo)
+        
+        if not video_path:
+            logger.error("❌ Falha ao criar REELS")
+            return "❌ Erro ao criar REELS", 500
+        
         def publicar_tudo():
-            # Primeiro tenta Instagram
-            instagram_ok = publicar_instagram_fallback(image_url, caption)
+            facebook_ok = publicar_reels_facebook(video_path, caption)
+            instagram_ok = publicar_reels_instagram(video_path, caption)
             
-            # Depois Facebook
-            facebook_ok = publicar_facebook_fallback(image_url, caption)
+            # Limpa arquivo temporário
+            if os.path.exists(video_path):
+                os.unlink(video_path)
             
             if facebook_ok and instagram_ok:
-                logger.info("🎉 ✅ PUBLICADO EM AMBAS AS PLATAFORMAS!")
-            elif facebook_ok:
-                logger.info("✅ PUBLICADO SOMENTE NO FACEBOOK!")
-            elif instagram_ok:
-                logger.info("✅ PUBLICADO SOMENTE NO INSTAGRAM!")
+                logger.info("🎉 ✅ REELS PUBLICADOS EM AMBAS AS PLATAFORMAS!")
             else:
-                logger.error("❌ FALHA EM AMBAS AS PLATAFORMAS")
+                logger.warning("⚠️ Publicação em uma das plataformas falhou")
         
         thread = threading.Thread(target=publicar_tudo)
         thread.start()
         
-        return "✅ Recebido! Publicação em andamento...", 200
+        return "✅ Recebido! Publicação de REELS em andamento...", 200
         
     except Exception as e:
         logger.error(f"❌ Erro no webhook: {str(e)}")
         return "Erro interno", 500
 
-@app.route('/teste')
-def teste():
-    return "✅ Sistema Boca no Trombone ONLINE! Use /webhook-boca para publicar.", 200
-
 @app.route('/')
 def home():
-    return "🚀 Sistema Funcionando! Boca no Trombone - Publicador Automático", 200
+    return "🚀 Sistema Funcionando! Boca no Trombone - Publicador de REELS", 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
