@@ -3,8 +3,7 @@ import requests
 import os
 import threading
 import logging
-import tempfile
-import base64
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -13,21 +12,29 @@ app = Flask(__name__)
 
 # Configurações
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
-INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_ACCOUNT_ID', '17841464327364824')
-FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '213776928485804')
+INSTAGRAM_ACCOUNT_ID = '17841464327364824'
+FACEBOOK_PAGE_ID = '213776928485804'
 WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
 def criar_legenda_completa(data):
-    """Monta a legenda profissional para Reels."""
+    """Monta a legenda profissional para Reels - SEM HTML."""
     try:
         post_data = data.get('post', {})
-        titulo = post_data.get('post_title', '')
         
+        # Pega o título e LIMPA HTML
+        titulo = post_data.get('post_title', '')
+        titulo = re.sub('<.*?>', '', titulo)  # Remove todas as tags HTML
+        
+        # Pega o resumo e LIMPA HTML
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
             conteudo = post_data.get('post_content', '')
-            resumo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
+            conteudo = re.sub('<.*?>', '', conteudo)  # Remove HTML
+            resumo = conteudo[:150] + "..." if len(conteudo) > 150 else conteudo
+        else:
+            resumo = re.sub('<.*?>', '', resumo)  # Remove HTML do resumo
         
+        # Legenda formatada CORRETAMENTE
         legenda = (
             f"🚨 {titulo.upper()}\n\n"
             f"@bocanotrombonelitoral\n\n"
@@ -41,7 +48,8 @@ def criar_legenda_completa(data):
         
     except Exception as e:
         logger.error(f"❌ Erro ao criar legenda: {str(e)}")
-        return data.get('post', {}).get('post_title', '') + "\n\nLeia a matéria completa no site! 📖"
+        titulo = data.get('post', {}).get('post_title', '')
+        return f"{titulo}\n\nLeia a matéria completa no site! 📖"
 
 def get_image_url_from_wordpress(image_id):
     """Busca a URL da imagem no WordPress"""
@@ -62,73 +70,30 @@ def get_image_url_from_wordpress(image_id):
         logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
-def criar_video_da_imagem(image_url):
-    """Converte imagem em vídeo simples para Reels"""
+def publicar_facebook(image_url, caption):
+    """Publica no Facebook como VÍDEO"""
     try:
-        logger.info("🎬 Convertendo imagem em vídeo...")
-        
-        # Download da imagem
-        response = requests.get(image_url, timeout=30)
-        if response.status_code != 200:
-            raise Exception("Erro ao baixar imagem")
-        
-        # Salva imagem temporária
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_img:
-            tmp_img.write(response.content)
-            image_path = tmp_img.name
-        
-        # Usa ffmpeg para criar vídeo a partir da imagem (10 segundos)
-        import subprocess
-        video_path = image_path.replace('.jpg', '.mp4')
-        
-        # Comando ffmpeg para criar vídeo a partir de imagem
-        cmd = [
-            'ffmpeg', '-y', '-loop', '1', '-i', image_path,
-            '-c:v', 'libx264', '-t', '10', '-pix_fmt', 'yuv420p',
-            '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
-            video_path
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            logger.error(f"❌ Erro ffmpeg: {result.stderr}")
-            return None
-        
-        os.unlink(image_path)
-        logger.info(f"✅ Vídeo criado: {video_path}")
-        return video_path
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao criar vídeo: {str(e)}")
-        return None
-
-def publicar_facebook_reels(video_path, caption):
-    """Publica REELS no Facebook"""
-    try:
-        logger.info("📤 Publicando REELS no Facebook...")
+        logger.info("📤 Publicando no Facebook...")
         
         if not PAGE_TOKEN_BOCA:
             logger.error("❌ Token do Facebook não configurado")
             return False
         
-        with open(video_path, 'rb') as video_file:
-            files = {'source': video_file}
-            params = {
-                'access_token': PAGE_TOKEN_BOCA,
-                'description': caption,
-                'title': 'BOCA NO TROMBONE - Últimas Notícias'
-            }
-            
-            response = requests.post(
-                f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/videos',
-                params=params,
-                files=files,
-                timeout=120
-            )
+        # Facebook converte imagem em vídeo automaticamente
+        params = {
+            'access_token': PAGE_TOKEN_BOCA,
+            'description': caption,
+            'url': image_url
+        }
+        
+        response = requests.post(
+            f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/videos',
+            params=params,
+            timeout=120
+        )
         
         if response.status_code == 200:
-            logger.info("🎉 ✅ REELS PUBLICADO NO FACEBOOK!")
+            logger.info("🎉 ✅ VÍDEO PUBLICADO NO FACEBOOK!")
             return True
         else:
             logger.error(f"❌ Erro Facebook: {response.text}")
@@ -138,8 +103,8 @@ def publicar_facebook_reels(video_path, caption):
         logger.error(f"❌ Erro na publicação Facebook: {str(e)}")
         return False
 
-def publicar_instagram_reels(video_path, caption):
-    """Publica REELS no Instagram"""
+def publicar_instagram(image_url, caption):
+    """Publica no Instagram como REELS"""
     try:
         logger.info("📤 Publicando REELS no Instagram...")
         
@@ -147,23 +112,22 @@ def publicar_instagram_reels(video_path, caption):
             logger.error("❌ Token do Instagram não configurado")
             return False
         
-        with open(video_path, 'rb') as video_file:
-            files = {'video': video_file}
-            create_params = {
-                'access_token': PAGE_TOKEN_BOCA,
-                'caption': caption,
-                'media_type': 'REELS'
-            }
-            
-            create_response = requests.post(
-                f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
-                params=create_params,
-                files=files,
-                timeout=120
-            )
+        # Instagram Reels
+        create_params = {
+            'access_token': PAGE_TOKEN_BOCA,
+            'caption': caption,
+            'media_type': 'REELS',
+            'video_url': image_url  # Instagram converte imagem em vídeo
+        }
+        
+        create_response = requests.post(
+            f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
+            params=create_params,
+            timeout=120
+        )
         
         if create_response.status_code != 200:
-            logger.error(f"❌ Erro ao criar mídia: {create_response.text}")
+            logger.error(f"❌ Erro ao criar Reels: {create_response.text}")
             return False
         
         creation_id = create_response.json().get('id')
@@ -171,16 +135,13 @@ def publicar_instagram_reels(video_path, caption):
             logger.error("❌ Não foi possível obter ID de criação")
             return False
         
-        logger.info(f"✅ Mídia Reels criada: {creation_id}")
+        logger.info(f"✅ Reels criado: {creation_id}")
         
         # Publicar
         publish_params = {
             'access_token': PAGE_TOKEN_BOCA,
             'creation_id': creation_id
         }
-        
-        import time
-        time.sleep(5)
         
         publish_response = requests.post(
             f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media_publish',
@@ -192,7 +153,7 @@ def publicar_instagram_reels(video_path, caption):
             logger.info("🎉 ✅ REELS PUBLICADO NO INSTAGRAM!")
             return True
         else:
-            logger.error(f"❌ Erro publicação: {publish_response.text}")
+            logger.error(f"❌ Erro publicação Instagram: {publish_response.text}")
             return False
             
     except Exception as e:
@@ -222,30 +183,19 @@ def webhook_boca():
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
-        # Converte imagem em vídeo para Reels
-        video_path = criar_video_da_imagem(image_url)
-        
-        if not video_path:
-            logger.error("❌ Falha ao criar vídeo")
-            return "❌ Erro ao criar vídeo", 500
-        
         def publicar_tudo():
-            facebook_ok = publicar_facebook_reels(video_path, caption)
-            instagram_ok = publicar_instagram_reels(video_path, caption)
-            
-            # Limpa arquivo temporário
-            if os.path.exists(video_path):
-                os.unlink(video_path)
+            facebook_ok = publicar_facebook(image_url, caption)
+            instagram_ok = publicar_instagram(image_url, caption)
             
             if facebook_ok and instagram_ok:
-                logger.info("🎉 ✅ REELS PUBLICADO EM AMBAS AS PLATAFORMAS!")
+                logger.info("🎉 ✅ PUBLICADO EM AMBAS AS PLATAFORMAS!")
             else:
                 logger.warning("⚠️ Publicação em uma das plataformas falhou")
         
         thread = threading.Thread(target=publicar_tudo)
         thread.start()
         
-        return "✅ Recebido! Publicação de REELS em andamento...", 200
+        return "✅ Recebido! Publicação em andamento...", 200
         
     except Exception as e:
         logger.error(f"❌ Erro no webhook: {str(e)}")
