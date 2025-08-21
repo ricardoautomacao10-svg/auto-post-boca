@@ -35,6 +35,9 @@ def webhook_boca():
         data = request.get_json()
         logger.info("Webhook recebido com sucesso")
         
+        if not data:
+            return jsonify({'status': 'error', 'message': 'Dados vazios'}), 400
+        
         # Extrair dados corretamente da estrutura do WordPress
         post_data = data.get('post', {})
         titulo = post_data.get('post_title', 'Título não disponível')
@@ -54,29 +57,19 @@ def webhook_boca():
         
     except Exception as e:
         logger.error(f"Erro no webhook: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'Erro interno no servidor'}), 500
 
-@app.route('/gerar_reel')
-def gerar_reel():
-    categoria = request.args.get('categoria', 'UBATUBA')
-    titulo = request.args.get('titulo', 'Título padrão')
-    imagem_url = request.args.get('imagem_url', '')
-    hashtags = "#Noticias #LitoralNorte #Ubatuba"
-    
-    return render_template('reel_template.html', 
-                         titulo=titulo,
-                         categoria=categoria,
-                         imagem_url=imagem_url,
-                         hashtags=hashtags)
-
-@app.route('/teste')
-def teste():
+@app.route('/teste-template')
+def teste_template():
     """Rota para testar se o template está funcionando"""
-    return render_template('reel_template.html', 
-                         titulo="TESTE: São Sebastião depois do caos, ônibus emergenciais começam a circular",
-                         categoria="SÃO PAULO",
-                         imagem_url="",
-                         hashtags="#Teste #Noticias")
+    try:
+        return render_template('reel_template.html', 
+                             titulo="TESTE: Big Brother nas Rodovias",
+                             categoria="CIDADES",
+                             imagem_url="",
+                             hashtags="#Teste #Noticias")
+    except Exception as e:
+        return f"Erro ao carregar template: {str(e)}", 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
