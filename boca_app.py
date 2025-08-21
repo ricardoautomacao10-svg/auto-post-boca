@@ -4,25 +4,61 @@ import os
 import threading
 import logging
 import json
+import tempfile
+from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, ColorClip
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Configurações
 PAGE_TOKEN_BOCA = os.getenv('PAGE_TOKEN_BOCA')
+INSTAGRAM_ACCOUNT_ID = '17841464327364824'  # ID do Instagram
+FACEBOOK_PAGE_ID = '213776928485804'  # ID do Facebook
 WORDPRESS_URL = "https://jornalvozdolitoral.com/wp-json/wp/v2/media/"
 
+def criar_legenda_completa(data):
+    """Monta a legenda no formato profissional para Reels."""
+    try:
+        post_data = data.get('post', {})
+        post_meta = data.get('post_meta', {})
+        
+        # 1. Pega o TÍTULO e formata
+        titulo = post_data.get('post_title', '')
+        titulo_formatado = f"🚨 **{titulo.upper()}**\n\n"
+        
+        # 2. Pega o RESUMO
+        resumo = post_data.get('post_excerpt', '')
+        if not resumo:
+            conteudo = post_data.get('post_content', '')
+            resumo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
+        
+        # 3. Monta a legenda
+        legenda = (
+            f"{titulo_formatado}"
+            f"@bocanotrombonelitoral\n\n"
+            f"---\n\n"
+            f"{resumo}\n\n"
+            f"📲 Leia a matéria completa no link da bio!\n\n"
+            f"#Noticias #LitoralNorte #SãoSebastião #Brasil"
+        )
+        
+        return legenda
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar legenda: {str(e)}")
+        return data.get('post', {}).get('post_title', '') + "\n\nLeia a matéria completa no site! 📖"
+
 def get_image_url_from_wordpress(image_id):
-    """Busca a URL da imagem no WordPress usando a API REST"""
+    """Busca a URL da imagem no WordPress"""
     try:
         logger.info(f"📡 Buscando imagem {image_id} no WordPress...")
-        
         response = requests.get(f"{WORDPRESS_URL}{image_id}", timeout=10)
         
         if response.status_code == 200:
             media_data = response.json()
-            image_url = media_data.get('source_url')  # URL completa da imagem
+            image_url = media_data.get('source_url')
             logger.info(f"✅ Imagem encontrada: {image_url}")
             return image_url
         else:
@@ -33,7 +69,89 @@ def get_image_url_from_wordpress(image_id):
         logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
-def publicar_facebook(video_url, caption):
+def gerar_video_reels(image_url, titulo):
+    """Gera vídeo vertical 9:16 (1080x1920) para Reels"""
+    try:
+        logger.info("🎬 Gerando vídeo Reels profissional...")
+        
+        # Download da imagem
+        response = requests.get(image_url, timeout=30)
+        if response.status_code != 200:
+            raise Exception("Erro ao baixar imagem")
+        
+        # Salva imagem temporária
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_img:
+            tmp_img.write(response.content)
+            image_path = tmp_img.name
+        
+        # Configurações do vídeo
+        duration = 10
+        width, height = 1080, 1920
+        
+        # Cria clipe da imagem
+        image_clip = ImageClip(image_path).resize(height=1600)
+        image_clip = image_clip.set_position(('center', 'center'))
+        image_clip = image_clip.set_duration(duration)
+        
+        # Fundo preto
+        background = ColorClip(size=(width, height), color=[0, 0, 0], duration=duration)
+        
+        # Overlay escuro
+        overlay = ColorClip(size=(width, height), color=[0, 0, 0], duration=duration)
+        overlay = overlay.set_opacity(0.3)
+        
+        # CAIXA VERMELHA de categoria
+        red_box = ColorClip(size=(width, 100), color=[220, 0, 0], duration=duration)
+        red_box = red_box.set_position(('center', 200))
+        red_box = red_box.set_opacity(0.9)
+        
+        # Texto da categoria
+        categoria_text = TextClip("ÚLTIMAS NOTÍCIAS", fontsize=40, color='white', font='Impact')
+        categoria_text = categoria_text.set_position(('center', 215))
+        categoria_text = categoria_text.set_duration(duration)
+        
+        # CAIXA BRANCA com título
+        white_box = ColorClip(size=(900, 300), color=[255, 255, 255], duration=duration)
+        white_box = white_box.set_position(('center', 900))
+        white_box = white_box.set_opacity(0.9)
+        
+        # Texto do título
+        title_text = TextClip(titulo.upper(), fontsize=50, color='black', font='Impact', 
+                             size=(800, 250), method='caption', align='center')
+        title_text = title_text.set_position(('center', 920))
+        title_text = title_text.set_duration(duration)
+        
+        # Logo
+        logo_text = TextClip("BOCA NO TROMBONE", fontsize=50, color='white', font='Impact')
+        logo_text = logo_text.set_position(('center', 100))
+        logo_text = logo_text.set_duration(duration)
+        
+        # Compõe todos os elementos
+        video = CompositeVideoClip([
+            background,
+            image_clip,
+            overlay,
+            red_box,
+            categoria_text,
+            white_box,
+            title_text,
+            logo_text
+        ], size=(width, height))
+        
+        # Salva vídeo temporário
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
+            video_path = tmp_video.name
+            video.write_videofile(video_path, fps=24, codec='libx264', audio=False, verbose=False, logger=None)
+        
+        os.unlink(image_path)
+        logger.info("✅ Vídeo gerado com sucesso!")
+        return video_path
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao gerar vídeo: {str(e)}")
+        return None
+
+def publicar_facebook(video_path, caption):
     """Publica vídeo no Facebook"""
     try:
         logger.info("📤 Publicando no Facebook...")
@@ -42,75 +160,138 @@ def publicar_facebook(video_url, caption):
             logger.error("❌ Token não configurado")
             return False
             
-        # Formata URL para MP4
-        if '/upload/' in video_url and '/f_mp4/' not in video_url:
-            video_url = video_url.replace('/upload/', '/upload/f_mp4/')
-        
+        # Upload para Facebook
+        files = {'source': open(video_path, 'rb')}
         params = {
             'access_token': PAGE_TOKEN_BOCA,
-            'file_url': video_url,
-            'description': caption[:1000] + "\n\nLeia a matéria completa no site! 📖"
+            'description': caption,
+            'title': 'Últimas Notícias - Boca no Trombone'
         }
         
         response = requests.post(
-            'https://graph.facebook.com/v23.0/213776928485804/videos',
+            f'https://graph.facebook.com/v23.0/{FACEBOOK_PAGE_ID}/videos',
             params=params,
-            timeout=60
+            files=files,
+            timeout=120
         )
         
         if response.status_code == 200:
             logger.info("🎉 ✅ VÍDEO PUBLICADO NO FACEBOOK!")
             return True
         else:
-            logger.error(f"❌ Erro: {response.text}")
+            logger.error(f"❌ Erro Facebook: {response.text}")
             return False
             
     except Exception as e:
-        logger.error(f"❌ Erro na publicação: {str(e)}")
+        logger.error(f"❌ Erro na publicação Facebook: {str(e)}")
+        return False
+
+def publicar_instagram(video_path, caption):
+    """Publica vídeo no Instagram Reels"""
+    try:
+        logger.info("📤 Publicando no Instagram...")
+        
+        if not PAGE_TOKEN_BOCA:
+            logger.error("❌ Token não configurado")
+            return False
+        
+        # Passo 1: Criar objeto de mídia
+        files = {'video': open(video_path, 'rb')}
+        create_params = {
+            'access_token': PAGE_TOKEN_BOCA,
+            'caption': caption,
+            'media_type': 'REELS'
+        }
+        
+        create_response = requests.post(
+            f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media',
+            params=create_params,
+            files=files,
+            timeout=120
+        )
+        
+        if create_response.status_code != 200:
+            logger.error(f"❌ Erro ao criar mídia Instagram: {create_response.text}")
+            return False
+        
+        creation_id = create_response.json().get('id')
+        if not creation_id:
+            logger.error("❌ Não foi possível obter ID de criação")
+            return False
+        
+        logger.info(f"✅ Mídia Instagram criada: {creation_id}")
+        
+        # Passo 2: Publicar
+        publish_params = {
+            'access_token': PAGE_TOKEN_BOCA,
+            'creation_id': creation_id
+        }
+        
+        import time
+        time.sleep(10)  # Aguarda processamento
+        
+        publish_response = requests.post(
+            f'https://graph.facebook.com/v23.0/{INSTAGRAM_ACCOUNT_ID}/media_publish',
+            params=publish_params,
+            timeout=120
+        )
+        
+        if publish_response.status_code == 200:
+            logger.info("🎉 ✅ REELS PUBLICADO NO INSTAGRAM!")
+            return True
+        else:
+            logger.error(f"❌ Erro publicação Instagram: {publish_response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Erro Instagram: {str(e)}")
         return False
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
     try:
         logger.info("📍 Recebendo dados do WordPress...")
-        
         data = request.json
-        logger.info("📦 Dados recebidos com sucesso!")
         
-        # 🔥 EXTRAIR ID DA IMAGEM do post_meta
+        # Extrair ID da imagem
         post_meta = data.get('post_meta', {})
-        thumbnail_id = post_meta.get('_thumbnail_id', [None])[0]  # Pega o primeiro valor do array
+        thumbnail_id = post_meta.get('_thumbnail_id', [None])[0]
         
         if not thumbnail_id:
             logger.error("❌ Nenhum ID de imagem encontrado")
             return "❌ ID da imagem não encontrado", 400
         
-        caption = data.get('post', {}).get('post_title') or data.get('post', {}).get('post_excerpt')
+        # Criar legenda
+        caption = criar_legenda_completa(data)
         
-        logger.info(f"🖼️ ID da Imagem: {thumbnail_id}")
-        logger.info(f"📋 Legenda: {caption}")
-        
-        if not caption:
-            logger.error("❌ Legenda não encontrada")
-            return "❌ Legenda não encontrada", 400
-        
-        # 🔥 BUSCAR URL DA IMAGEM no WordPress
+        # Buscar URL da imagem
         image_url = get_image_url_from_wordpress(thumbnail_id)
-        
         if not image_url:
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
-        logger.info(f"✅ URL da imagem: {image_url}")
+        # Gerar vídeo profissional
+        video_path = gerar_video_reels(image_url, data.get('post', {}).get('post_title', ''))
         
-        # 🔥 AQUI VOCÊ CRIARIA O VÍDEO COM A IMAGEM
-        # Por enquanto, teste com vídeo existente
-        video_url_test = "https://res.cloudinary.com/dj1h27ueg/video/upload/v1755717469/boca_reels/i6pys2w5cwwu1t1zfvs4.mp4"
+        if not video_path:
+            logger.error("❌ Falha ao gerar vídeo")
+            return "❌ Erro ao gerar vídeo", 500
         
-        logger.info("✅ Dados válidos - Publicando...")
+        # Publicar em ambas as plataformas
+        def publicar_tudo():
+            facebook_ok = publicar_facebook(video_path, caption)
+            instagram_ok = publicar_instagram(video_path, caption)
+            
+            # Limpar arquivo temporário
+            os.unlink(video_path)
+            
+            if facebook_ok and instagram_ok:
+                logger.info("🎉 ✅ PUBLICADO EM AMBAS AS PLATAFORMAS!")
+            else:
+                logger.warning("⚠️ Publicação em uma das plataformas falhou")
         
-        # Publicar em background
-        thread = threading.Thread(target=publicar_facebook, args=(video_url_test, caption))
+        # Inicia publicação em background
+        thread = threading.Thread(target=publicar_tudo)
         thread.start()
         
         return "✅ Recebido! Publicação em andamento...", 200
@@ -119,19 +300,10 @@ def handle_webhook():
         logger.error(f"❌ Erro: {str(e)}")
         return "Erro", 500
 
-@app.route('/teste-imagem/<image_id>')
-def teste_imagem(image_id):
-    """Teste manual de busca de imagem"""
-    image_url = get_image_url_from_wordpress(image_id)
-    if image_url:
-        return {"image_url": image_url}, 200
-    else:
-        return {"error": "Imagem não encontrada"}, 404
-
 @app.route('/')
 def home():
-    return "🚀 Sistema Funcionando! Buscando imagens do WordPress...", 200
+    return "🚀 Sistema Funcionando! Boca no Trombone - Publicador Automático", 200
 
 if __name__ == '__main__':
-    logger.info("✅ Servidor pronto - Buscando imagens do WordPress!")
+    logger.info("✅ Servidor pronto!")
     app.run(host='0.0.0.0', port=10000)
