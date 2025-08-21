@@ -25,7 +25,7 @@ def criar_legenda_completa(data):
         
         titulo = post_data.get('post_title', '')
         titulo = re.sub('<.*?>', '', titulo)
-        titulo = titulo.replace('&nbsp;', ' ').replace('&#8217;', "'")
+        titulo = titulo.replace('&nbsp;', ' ').replace('&#8217;', "'").replace(':', ' -')
         
         resumo = post_data.get('post_excerpt', '')
         if not resumo:
@@ -71,10 +71,10 @@ def get_image_url_from_wordpress(image_id):
         logger.error(f"❌ Erro na busca da imagem: {str(e)}")
         return None
 
-def criar_video_reels_profissional(image_url, titulo):
-    """Cria vídeo estático profissional para Reels com layout EXATO"""
+def criar_video_reels_simples(image_url):
+    """Cria vídeo simples de 15 segundos para Reels"""
     try:
-        logger.info("🎬 Criando REELS profissional...")
+        logger.info("🎬 Criando vídeo simples para Reels...")
         
         # Download da imagem
         response = requests.get(image_url, timeout=30)
@@ -86,28 +86,18 @@ def criar_video_reels_profissional(image_url, titulo):
             tmp_img.write(response.content)
             image_path = tmp_img.name
         
-        # Cria vídeo estático de 15 segundos (1080x1920 - Formato Reels)
+        # Cria vídeo simples de 15 segundos
         video_path = image_path.replace('.jpg', '.mp4')
         
-        # Comando ffmpeg para criar vídeo estático com overlay
+        # Comando ffmpeg SIMPLIFICADO - só cria vídeo, sem textos complexos
         cmd = [
             'ffmpeg', '-y',
             '-loop', '1',
             '-i', image_path,
             '-c:v', 'libx264',
-            '-t', '15',  # 15 segundos
+            '-t', '15',
             '-pix_fmt', 'yuv420p',
-            '-vf', '''
-            scale=1080:1920:force_original_aspect_ratio=increase,
-            crop=1080:1920,
-            drawbox=0:0:1080:1920:black@0.4:t=fill,
-            drawbox=0:100:1080:80:red@0.9:t=fill,
-            drawbox=40:900:1000:300:white@0.9:t=fill,
-            drawtext=text=\'BOCA NO TROMBONE\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=60:fontcolor=white:x=(w-text_w)/2:y=120,
-            drawtext=text=\'ÚLTIMAS NOTÍCIAS\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=40:fontcolor=white:x=(w-text_w)/2:y=220,
-            drawtext=text=\'''' + titulo.replace("'", "'\\\\''") + '''\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=48:fontcolor=black:x=(w-text_w)/2:y=950:box=1:boxcolor=white@0.0:boxborderw=10,
-            drawtext=text=\'@bocanotrombonelitoral\':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=1850
-            ''',
+            '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
             video_path
         ]
         
@@ -120,11 +110,11 @@ def criar_video_reels_profissional(image_url, titulo):
             logger.error(f"❌ Erro ffmpeg: {result.stderr}")
             return None
         
-        logger.info(f"✅ REELS profissional criado: {video_path}")
+        logger.info(f"✅ Vídeo criado: {video_path}")
         return video_path
         
     except Exception as e:
-        logger.error(f"❌ Erro ao criar REELS: {str(e)}")
+        logger.error(f"❌ Erro ao criar vídeo: {str(e)}")
         return None
 
 def publicar_reels_facebook(video_path, caption):
@@ -247,13 +237,12 @@ def webhook_boca():
             logger.error("❌ Não foi possível obter a URL da imagem")
             return "❌ Erro ao buscar imagem", 500
         
-        # Cria REELS profissional
-        titulo = data.get('post', {}).get('post_title', '')
-        video_path = criar_video_reels_profissional(image_url, titulo)
+        # Cria vídeo SIMPLES - só a imagem em vídeo de 15s
+        video_path = criar_video_reels_simples(image_url)
         
         if not video_path:
-            logger.error("❌ Falha ao criar REELS")
-            return "❌ Erro ao criar REELS", 500
+            logger.error("❌ Falha ao criar vídeo")
+            return "❌ Erro ao criar vídeo", 500
         
         def publicar_tudo():
             facebook_ok = publicar_reels_facebook(video_path, caption)
