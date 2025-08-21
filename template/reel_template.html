@@ -27,8 +27,8 @@
         <div class="brand">BOCA NO TROMBONE</div>
         
         <div class="image-section">
-            {% if imagem_url %}
-                IMAGEM DO WP CARREGADA
+            {% if imagem_url and imagem_url != '' %}
+                IMAGEM CARREGADA: {{ imagem_url }}
             {% else %}
                 IMAGEM FORNECIDA PELO WP
             {% endif %}
