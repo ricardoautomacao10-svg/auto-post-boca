@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: boca-no-trombone
+    name: boca-app
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn boca_app:app
+    startCommand: gunicorn boca_app:app --bind 0.0.0.0:10000
