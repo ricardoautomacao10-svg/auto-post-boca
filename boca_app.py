@@ -212,7 +212,7 @@ def publish_to_instagram(titulo, video_url, hashtags):
         logger.error(f"💥 Erro grave na publicação: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-@app.route('/webbook-boca', methods=['POST'])
+@app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
     """Endpoint para receber webhooks do WordPress - VERSÃO PARA VÍDEOS"""
     try:
