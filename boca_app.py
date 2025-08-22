@@ -6,6 +6,7 @@ import json
 from jinja2 import Template
 import tempfile
 import datetime
+import time
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +17,9 @@ app = Flask(__name__)
 # Variáveis de ambiente
 INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOKEN', '')
 INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv('USER_ACCOUNT_ID', '')
+INSTAGRAM_ACCOUNT_ID = '17841464327364824'  # ID fixo do Instagram
 
-# TEMPLATE INLINE (para evitar problemas com arquivo não encontrado)
+# TEMPLATE INLINE
 template_html = """
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -157,12 +159,59 @@ template_html = """
 
 template = Template(template_html)
 
+def publish_to_instagram(titulo, imagem_url, hashtags):
+    """Publica conteúdo no Instagram de forma REAL"""
+    try:
+        logger.info(f"📤 Iniciando publicação no Instagram: {titulo}")
+        
+        # 1. Criar container de mídia
+        create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media"
+        
+        payload = {
+            'image_url': imagem_url,
+            'caption': f"{titulo}\n\n{hashtags}\n\n@bocanotrombonelitoral",
+            'access_token': INSTAGRAM_ACCESS_TOKEN
+        }
+        
+        logger.info(f"📦 Criando container de mídia...")
+        response = requests.post(create_url, data=payload, timeout=30)
+        result = response.json()
+        
+        if 'id' not in result:
+            logger.error(f"❌ Erro ao criar container: {result}")
+            return {"status": "error", "message": result}
+        
+        creation_id = result['id']
+        logger.info(f"✅ Container criado: {creation_id}")
+        
+        # 2. Publicar o conteúdo
+        publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
+        publish_payload = {
+            'creation_id': creation_id,
+            'access_token': INSTAGRAM_ACCESS_TOKEN
+        }
+        
+        logger.info(f"🚀 Publicando no Instagram...")
+        publish_response = requests.post(publish_url, data=publish_payload, timeout=30)
+        publish_result = publish_response.json()
+        
+        if 'id' in publish_result:
+            logger.info(f"🎉 PUBLICADO COM SUCESSO! ID: {publish_result['id']}")
+            return {"status": "success", "id": publish_result['id'], "message": "Reel publicado com sucesso!"}
+        else:
+            logger.error(f"❌ Erro na publicação: {publish_result}")
+            return {"status": "error", "message": publish_result}
+            
+    except Exception as e:
+        logger.error(f"💥 Erro grave na publicação: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 @app.route('/webbook-boca', methods=['POST'])
 def handle_webhook():
-    """Endpoint para receber webhooks do WordPress"""
+    """Endpoint para receber webhooks do WordPress - VERSÃO 24x7"""
     try:
         data = request.json
-        logger.info(f"Webhook recebido: {json.dumps(data)}")
+        logger.info(f"🌐 Webhook recebido: {json.dumps(data)}")
         
         # Extrair dados da notícia
         titulo = data.get('titulo', 'Título da notícia')
@@ -170,40 +219,32 @@ def handle_webhook():
         categoria = data.get('categoria', 'Geral')
         hashtags = data.get('hashtags', '#Noticias #LitoralNorte')
         
-        # Gerar HTML do reel
-        html_content = template.render(
-            titulo=titulo,
-            imagem_url=imagem_url,
-            categoria=categoria,
-            hashtags=hashtags
-        )
+        # 🚀 PUBLICAR NO INSTAGRAM (AGORA É REAL!)
+        publication_result = publish_to_instagram(titulo, imagem_url, hashtags)
         
-        # SIMULAÇÃO - Em produção, você precisaria converter para vídeo
-        logger.info(f"Reel gerado para: {titulo}")
-        
-        # SIMULAÇÃO - Em produção, aqui viria a publicação real
-        # result = publish_to_instagram(titulo, hashtags)
-        
-        return jsonify({
-            "status": "success", 
-            "message": "Reel processado com sucesso (modo simulação)",
-            "dados_recebidos": {
-                "titulo": titulo,
-                "imagem_url": imagem_url,
-                "categoria": categoria,
-                "hashtags": hashtags
-            }
-        })
+        if publication_result['status'] == 'success':
+            logger.info(f"✅ Publicação concluída: {publication_result['id']}")
+            return jsonify({
+                "status": "success", 
+                "message": "Reel publicado com sucesso!",
+                "instagram_id": publication_result['id'],
+                "dados_recebidos": {
+                    "titulo": titulo,
+                    "imagem_url": imagem_url,
+                    "categoria": categoria,
+                    "hashtags": hashtags
+                }
+            })
+        else:
+            logger.error(f"❌ Falha na publicação: {publication_result['message']}")
+            return jsonify({
+                "status": "error", 
+                "message": f"Erro ao publicar: {publication_result['message']}"
+            }), 500
         
     except Exception as e:
-        logger.error(f"Erro ao processar webhook: {str(e)}")
+        logger.error(f"💥 Erro ao processar webhook: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-def publish_to_instagram(titulo, hashtags):
-    """Simula publicação no Instagram (implementação real viria depois)"""
-    # Esta é uma implementação simulada para testes
-    logger.info(f"SIMULAÇÃO: Publicando no Instagram - {titulo} {hashtags}")
-    return {"id": "simulado_123", "status": "success"}
 
 @app.route('/')
 def index():
@@ -214,20 +255,21 @@ def index():
         business_id_exists = bool(INSTAGRAM_BUSINESS_ACCOUNT_ID)
         
         status_html = f"""
-        <h1>🔧 Status do Sistema Boca no Trombone</h1>
+        <h1>🔧 Status do Sistema Boca no Trombone - 24x7</h1>
         <p><b>Access Token:</b> {token_exists and '✅ Configurado' or '❌ Não configurado'}</p>
         <p><b>Business ID:</b> {business_id_exists and '✅ Configurado' or '❌ Não configurado'}</p>
-        <p><b>Business Account ID:</b> {INSTAGRAM_BUSINESS_ACCOUNT_ID or 'N/A'}</p>
+        <p><b>Instagram Account ID:</b> {INSTAGRAM_ACCOUNT_ID}</p>
         <p><b>Access Token (início):</b> {INSTAGRAM_ACCESS_TOKEN[:20] + '...' if INSTAGRAM_ACCESS_TOKEN else 'N/A'}</p>
         <br>
-        <p><b>⚠️ MODO SIMULAÇÃO ATIVADO:</b> O sistema recebe webhooks mas não publica ainda</p>
-        <p><a href="/test-webhook">🧪 Testar webhook</a></p>
+        <p><b>🚀 MODO PRODUÇÃO 24x7 ATIVADO!</b></p>
+        <p><b>📤 Endpoint Webhook:</b> <code>https://auto-post-boca.onrender.com/webbook-boca</code></p>
+        <p><a href="/test-webhook">🧪 Testar publicação real</a></p>
         """
         
         # Testar conexão com API se tokens existirem
         if token_exists and business_id_exists:
             try:
-                test_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}?fields=name,instagram_business_account&access_token={INSTAGRAM_ACCESS_TOKEN}"
+                test_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}?fields=name&access_token={INSTAGRAM_ACCESS_TOKEN}"
                 response = requests.get(test_url, timeout=10)
                 status = "✅" if response.status_code == 200 else "❌"
                 status_html += f'<p><b>Conexão API:</b> {status} Código: {response.status_code}</p>'
@@ -241,37 +283,49 @@ def index():
 
 @app.route('/test-webhook', methods=['GET', 'POST'])
 def test_webhook():
-    """Página para testar webhook manualmente"""
+    """Página para testar webhook manualmente - AGORA PUBLICA DE VERDADE!"""
     if request.method == 'POST':
-        # Simular dados de teste
+        # Dados de teste REALISTAS
         test_data = {
-            "titulo": "TESTE - São Sebastião depois do caos, ônibus emergenciais começam a circular",
+            "titulo": "TESTE REAL - São Sebastião depois do caos, ônibus emergenciais começam a circular",
             "imagem_url": "https://jornalvozdolitoral.com/wp-content/uploads/2025/08/image-59.png",
             "categoria": "Urgente",
-            "hashtags": "#SãoSebastião #Noticias #LitoralNorte"
+            "hashtags": "#SãoSebastião #Noticias #LitoralNorte #BocaNoTrombone"
         }
         
         # Chamar o webhook handler manualmente
         with app.test_client() as client:
             response = client.post('/webbook-boca', json=test_data)
         
-        return f"""
-        <h1>🧪 Teste de Webhook Realizado</h1>
-        <pre>{json.dumps(response.get_json(), indent=2)}</pre>
-        <p><a href="/test-webhook">↩️ Fazer outro teste</a></p>
-        <p><a href="/">🏠 Voltar ao início</a></p>
-        """
+        result = response.get_json()
+        
+        if result and result.get('status') == 'success':
+            return f"""
+            <h1>🎉 PUBLICAÇÃO REAL FEITA COM SUCESSO!</h1>
+            <p><b>ID do Instagram:</b> {result.get('instagram_id', 'N/A')}</p>
+            <pre>{json.dumps(result, indent=2)}</pre>
+            <p>✅ Verifique no <a href="https://www.instagram.com/bocanotrombonelitoral" target="_blank">Instagram</a> se a publicação apareceu!</p>
+            <p><a href="/test-webhook">↩️ Fazer outro teste</a></p>
+            <p><a href="/">🏠 Voltar ao início</a></p>
+            """
+        else:
+            return f"""
+            <h1>❌ ERRO NA PUBLICAÇÃO</h1>
+            <pre>{json.dumps(result, indent=2)}</pre>
+            <p><a href="/test-webhook">↩️ Tentar novamente</a></p>
+            <p><a href="/">🏠 Voltar ao início</a></p>
+            """
     
     return """
-    <h1>🧪 Testar Webhook Manualmente</h1>
+    <h1>🧪 Testar Publicação REAL no Instagram</h1>
+    <p><b>⚠️ ATENÇÃO:</b> Este teste vai publicar DE VERDADE no Instagram!</p>
     <form method="POST">
-        <p>Este teste simula um webhook do WordPress com dados de exemplo.</p>
-        <input type="submit" value="🔘 Executar Teste" style="padding: 15px; font-size: 16px;">
+        <input type="submit" value="🚀 Publicar Teste Real" style="padding: 15px; font-size: 16px; background: red; color: white; border: none; border-radius: 5px;">
     </form>
     <p><a href="/">🏠 Voltar ao início</a></p>
     """
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema de automação de Reels iniciado!")
+    logger.info("🚀 Sistema 24x7 de automação de Reels INICIADO!")
     app.run(host='0.0.0.0', port=port, debug=False)
