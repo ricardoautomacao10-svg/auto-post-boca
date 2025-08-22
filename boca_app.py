@@ -3,8 +3,8 @@ import os
 import logging
 import requests
 import json
-from jinja2 import Template
-import time
+from bs4 import BeautifulSoup
+from base64 import b64encode
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -12,165 +12,55 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ⚡ VARIÁVEIS CORRETAS para SEU RENDER:
+# ⚡ VARIÁVEIS PARA INSTAGRAM:
 INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOKEN_BOCA', '') or os.getenv('USER_ACCESS_TOKEN', '')
 INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_ID', '17841464327364824')
 
-# TEMPLATE INLINE
-template_html = """
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boca no Trombone - Post</title>
-    <style>
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-        }
-        
-        body { 
-            width: 1080px; 
-            height: 1080px; 
-            background-color: #000; 
-            color: white; 
-            position: relative; 
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-        }
-        
-        .container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .header {
-            width: 100%;
-            background-color: #e60000;
-            padding: 20px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 32px;
-        }
-        
-        .image-container {
-            width: 80%;
-            height: 60%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 20px 0;
-        }
-        
-        .news-image {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            border: 3px solid #fff;
-            border-radius: 15px;
-        }
-        
-        .headline-container {
-            width: 90%;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .headline {
-            color: #000;
-            font-weight: 800;
-            font-size: 36px;
-            text-align: center;
-            line-height: 1.2;
-        }
-        
-        .footer {
-            width: 100%;
-            text-align: center;
-            font-size: 24px;
-            font-weight: bold;
-            padding: 10px;
-        }
-        
-        .hashtag {
-            color: #ffcc00;
-            margin-top: 10px;
-            font-size: 20px;
-        }
-        
-        .fallback-text {
-            color: white;
-            font-size: 24px;
-            text-align: center;
-            padding: 20px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">BOCA NO TROMBONE - ILHABELA</div>
-        
-        <div class="image-container">
-            {% if imagem_url and imagem_url != '' %}
-            <img src="{{ imagem_url }}" alt="Imagem da notícia" class="news-image">
-            {% else %}
-            <div class="fallback-text">IMAGEM FORNECIDA PELO WORDPRESS</div>
-            {% endif %}
-        </div>
-        
-        <div class="headline-container">
-            <div class="headline">{{ titulo }}</div>
-        </div>
-        
-        <div class="footer">
-            @bocanotrombonelitoral
-            <div class="hashtag">{{ hashtags }}</div>
-        </div>
-    </div>
-</body>
-</html>
-"""
+# ⚡ VARIÁVEIS PARA FACEBOOK:
+FACEBOOK_ACCESS_TOKEN = os.getenv('PAGE_TOKEN_BOCA', '') or os.getenv('USER_ACCESS_TOKEN', '')
+FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '213776928485804')
 
-template = Template(template_html)
+# ⚡ VARIÁVEIS DO WORDPRESS:
+WP_URL = os.getenv('MP_URL', 'https://jornalvozdolitoral.com')
+WP_USER = os.getenv('MP_USER', '')
+WP_PASSWORD = os.getenv('MP_PASSWORD', '')
 
-def publish_to_instagram(titulo, imagem_url, hashtags):
-    """Publica IMAGEM no Instagram Feed"""
+# Configurar headers do WordPress
+HEADERS_WP = {}
+if WP_USER and WP_PASSWORD:
+    credentials = f"{WP_USER}:{WP_PASSWORD}"
+    token_wp = b64encode(credentials.encode())
+    HEADERS_WP = {'Authorization': f'Basic {token_wp.decode("utf-8")}'}
+    logger.info("✅ Configuração WordPress OK")
+else:
+    logger.warning("⚠️ Configuração WordPress incompleta")
+
+def publicar_no_instagram(url_imagem, legenda):
+    """Publica IMAGEM no Instagram"""
     try:
-        logger.info(f"📸 Publicando IMAGEM: {titulo}")
+        logger.info(f"📸 Publicando no Instagram: {legenda[:50]}...")
         
-        # VERIFICAR SE AS VARIÁVEIS ESTÃO CONFIGURADAS
-        if not INSTAGRAM_ACCESS_TOKEN:
-            return {"status": "error", "message": "❌ PAGE_TOKEN_BOCA não configurado"}
-        if not INSTAGRAM_ACCOUNT_ID:
-            return {"status": "error", "message": "❌ INSTAGRAM_ID não configurado"}
+        if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_ACCOUNT_ID:
+            return {"status": "error", "message": "❌ Configuração Instagram incompleta"}
         
         # 1. Criar container para IMAGEM
         create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media"
-        
         payload = {
-            'image_url': imagem_url,  # ⚡ IMAGEM (não vídeo)
-            'caption': f"{titulo}\n\n{hashtags}\n\n@bocanotrombonelitoral",
+            'image_url': url_imagem,
+            'caption': legenda,
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        logger.info(f"📦 Criando container de IMAGEM...")
+        logger.info("📦 Criando container Instagram...")
         response = requests.post(create_url, data=payload, timeout=30)
         result = response.json()
         
         if 'id' not in result:
-            logger.error(f"❌ Erro ao criar container: {result}")
+            logger.error(f"❌ Erro Instagram container: {result}")
             return {"status": "error", "message": result}
         
         creation_id = result['id']
-        logger.info(f"✅ Container de imagem criado: {creation_id}")
+        logger.info(f"✅ Container Instagram criado: {creation_id}")
         
         # 2. Publicar a IMAGEM
         publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
@@ -179,157 +69,126 @@ def publish_to_instagram(titulo, imagem_url, hashtags):
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        logger.info(f"🚀 Publicando IMAGEM no Instagram...")
+        logger.info("🚀 Publicando no Instagram...")
         publish_response = requests.post(publish_url, data=publish_payload, timeout=30)
         publish_result = publish_response.json()
         
         if 'id' in publish_result:
-            logger.info(f"🎉 IMAGEM PUBLICADA COM SUCESSO! ID: {publish_result['id']}")
-            return {"status": "success", "id": publish_result['id'], "message": "Imagem publicada com sucesso!"}
+            logger.info(f"🎉 Instagram OK! ID: {publish_result['id']}")
+            return {"status": "success", "id": publish_result['id']}
         else:
-            logger.error(f"❌ Erro na publicação: {publish_result}")
+            logger.error(f"❌ Erro Instagram publicação: {publish_result}")
             return {"status": "error", "message": publish_result}
             
     except Exception as e:
-        logger.error(f"💥 Erro grave na publicação: {str(e)}")
+        logger.error(f"💥 Erro Instagram: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+def publicar_no_facebook(url_imagem, legenda):
+    """Publica IMAGEM no Facebook"""
+    try:
+        logger.info(f"📘 Publicando no Facebook: {legenda[:50]}...")
+        
+        if not FACEBOOK_ACCESS_TOKEN or not FACEBOOK_PAGE_ID:
+            return {"status": "error", "message": "❌ Configuração Facebook incompleta"}
+        
+        # Publicar diretamente no Facebook
+        publish_url = f"https://graph.facebook.com/v18.0/{FACEBOOK_PAGE_ID}/photos"
+        payload = {
+            'url': url_imagem,
+            'message': legenda,
+            'access_token': FACEBOOK_ACCESS_TOKEN
+        }
+        
+        logger.info("🚀 Publicando no Facebook...")
+        response = requests.post(publish_url, data=payload, timeout=30)
+        result = response.json()
+        
+        if 'id' in result:
+            logger.info(f"🎉 Facebook OK! ID: {result['id']}")
+            return {"status": "success", "id": result['id']}
+        else:
+            logger.error(f"❌ Erro Facebook: {result}")
+            return {"status": "error", "message": result}
+            
+    except Exception as e:
+        logger.error(f"💥 Erro Facebook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
-    """Endpoint para receber webhooks do WordPress - PARA IMAGENS"""
+    """Endpoint para receber webhooks do WordPress"""
     try:
         data = request.json
-        logger.info(f"🌐 Webhook recebido do WordPress")
+        logger.info("🌐 Webhook recebido do WordPress")
         
-        # Extrair dados do WordPress
-        titulo = data.get('post', {}).get('post_title', 'Título da notícia')
-        imagem_url = data.get('post_thumbnail', '')  # ⚡ IMAGEM da notícia
+        # Extrair post_id do webhook
+        post_id = data.get('post_id')
+        if not post_id:
+            return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
-        # Extrair categoria e criar hashtags
-        categorias = data.get('taxonomies', {}).get('category', {})
-        categoria = list(categorias.keys())[0] if categorias else 'Geral'
-        hashtags = f"#{categoria} #Noticias #LitoralNorte" if categoria else "#Noticias #LitoralNorte"
+        # Buscar dados do post no WordPress
+        post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
+        response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
         
-        # 🚀 PUBLICAR IMAGEM NO INSTAGRAM
-        publication_result = publish_to_instagram(titulo, imagem_url, hashtags)
+        if response.status_code != 200:
+            return jsonify({"status": "error", "message": "❌ Erro ao buscar post"}), 500
         
-        if publication_result['status'] == 'success':
-            logger.info(f"✅ Publicação concluída: {publication_result['id']}")
+        post_data = response.json()
+        
+        # Extrair título e resumo
+        titulo = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
+        resumo = BeautifulSoup(post_data.get('excerpt', {}).get('rendered', ''), 'html.parser').get_text(strip=True)
+        
+        # URL da imagem pronta (post_social_ID.jpg)
+        imagem_url = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
+        
+        # Criar legenda
+        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa em nosso site. Link na bio!\n\n#noticias #litoralnorte #brasil #jornalismo"
+        
+        # 🚀 PUBLICAR NAS DUAS REDES
+        resultado_instagram = publicar_no_instagram(imagem_url, legenda)
+        resultado_facebook = publicar_no_facebook(imagem_url, legenda)
+        
+        # Verificar resultados
+        sucesso_instagram = resultado_instagram.get('status') == 'success'
+        sucesso_facebook = resultado_facebook.get('status') == 'success'
+        
+        if sucesso_instagram or sucesso_facebook:
             return jsonify({
-                "status": "success", 
-                "message": "Imagem publicada com sucesso!",
-                "instagram_id": publication_result['id'],
-                "dados_recebidos": {
-                    "titulo": titulo,
-                    "imagem_url": imagem_url,
-                    "categoria": categoria,
-                    "hashtags": hashtags
-                }
+                "status": "success",
+                "message": "Publicação realizada",
+                "instagram": resultado_instagram,
+                "facebook": resultado_facebook
             })
         else:
-            logger.error(f"❌ Falha na publicação: {publication_result['message']}")
             return jsonify({
                 "status": "error", 
-                "message": f"Erro ao publicar: {publication_result['message']}"
+                "message": "Erro nas publicações",
+                "instagram": resultado_instagram,
+                "facebook": resultado_facebook
             }), 500
         
     except Exception as e:
-        logger.error(f"💥 Erro ao processar webhook: {str(e)}")
+        logger.error(f"💥 Erro no webhook: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/')
 def index():
-    """Página inicial com status completo"""
-    try:
-        # Verificar se variáveis existem
-        token_exists = bool(INSTAGRAM_ACCESS_TOKEN)
-        account_exists = bool(INSTAGRAM_ACCOUNT_ID)
-        
-        status_html = f"""
-        <h1>🔧 Status do Sistema Boca no Trombone - IMAGENS</h1>
-        <p><b>PAGE_TOKEN_BOCA:</b> {token_exists and '✅ Configurado' or '❌ Não configurado'}</p>
-        <p><b>INSTAGRAM_ID:</b> {account_exists and '✅ Configurado' or '❌ Não configurado'}</p>
-        <p><b>Instagram Account ID:</b> {INSTAGRAM_ACCOUNT_ID}</p>
-        <p><b>Access Token (início):</b> {INSTAGRAM_ACCESS_TOKEN[:20] + '...' if INSTAGRAM_ACCESS_TOKEN else 'N/A'}</p>
-        <br>
-        <p><b>🚀 SISTEMA DE IMAGENS ATIVADO!</b></p>
-        <p><b>📤 Endpoint Webhook:</b> <code>https://auto-post-boca.onrender.com/webhook-boca</code></p>
-        <p><b>💡 Funcionamento:</b> Recebe imagens do WordPress e publica no Instagram</p>
-        """
-        
-        # Testar conexão com API se tokens existirem
-        if token_exists and account_exists:
-            try:
-                test_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}?fields=name,username&access_token={INSTAGRAM_ACCESS_TOKEN}"
-                response = requests.get(test_url, timeout=10)
-                status = "✅" if response.status_code == 200 else "❌"
-                status_html += f'<p><b>Conexão API:</b> {status} Código: {response.status_code}</p>'
-                
-                # Mostrar dados da conta se funcionar
-                if response.status_code == 200:
-                    account_data = response.json()
-                    status_html += f'<p><b>Conta Instagram:</b> {account_data.get("name")} (@{account_data.get("username")})</p>'
-                    
-            except Exception as e:
-                status_html += f'<p><b>Conexão API:</b> ❌ Erro: {str(e)}</p>'
-        
-        return status_html
-        
-    except Exception as e:
-        return f"<h1>❌ Erro na verificação:</h1><p>{str(e)}</p>"
-
-@app.route('/test-webhook', methods=['GET', 'POST'])
-def test_webhook():
-    """Página para testar webhook manualmente - PARA IMAGENS"""
-    if request.method == 'POST':
-        # Dados de teste PARA IMAGEM
-        test_data = {
-            "post": {
-                "post_title": "TESTE - Prefeitura de Caraguatatuba empossa nova comissão"
-            },
-            "post_thumbnail": "https://jornalvozdolitoral.com/wp-content/uploads/2025/08/image-64.png",
-            "taxonomies": {
-                "category": {
-                    "caraguatatuba": {
-                        "name": "Caraguatatuba"
-                    }
-                }
-            }
-        }
-        
-        # Chamar o webhook handler manualmente
-        with app.test_client() as client:
-            response = client.post('/webhook-boca', json=test_data)
-        
-        result = response.get_json()
-        
-        if result and result.get('status') == 'success':
-            return f"""
-            <h1>🎉 IMAGEM PUBLICADA COM SUCESSO!</h1>
-            <p><b>ID do Instagram:</b> {result.get('instagram_id', 'N/A')}</p>
-            <pre>{json.dumps(result, indent=2)}</pre>
-            <p>✅ Verifique no <a href="https://www.instagram.com/bocanotrombonelitoral" target="_blank">Instagram</a> se a imagem apareceu!</p>
-            <p><a href="/test-webhook">↩️ Fazer outro teste</a></p>
-            <p><a href="/">🏠 Voltar ao início</a></p>
-            """
-        else:
-            return f"""
-            <h1>❌ ERRO NA PUBLICAÇÃO</h1>
-            <pre>{json.dumps(result, indent=2)}</pre>
-            <p><a href="/test-webhook">↩️ Tentar novamente</a></p>
-            <p><a href="/">🏠 Voltar ao início</a></p>
-            """
+    """Página inicial com status"""
+    instagram_ok = bool(INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID)
+    facebook_ok = bool(FACEBOOK_ACCESS_TOKEN and FACEBOOK_PAGE_ID)
+    wp_ok = bool(WP_USER and WP_PASSWORD)
     
-    return """
-    <h1>🧪 Testar Publicação de IMAGEM</h1>
-    <p><b>⚠️ ATENÇÃO:</b> Este teste vai publicar uma IMAGEM DE VERDADE no Instagram!</p>
-    <form method="POST">
-        <input type="submit" value="🚀 Publicar Imagem de Teste" style="padding: 15px; font-size: 16px; background: red; color: white; border: none; border-radius: 5px;">
-    </form>
-    <p><a href="/">🏠 Voltar ao início</a></p>
+    return f"""
+    <h1>🔧 Status do Sistema Boca no Trombone</h1>
+    <p><b>Instagram:</b> {instagram_ok and '✅ Configurado' or '❌ Não configurado'}</p>
+    <p><b>Facebook:</b> {facebook_ok and '✅ Configurado' or '❌ Não configurado'}</p>
+    <p><b>WordPress:</b> {wp_ok and '✅ Configurado' or '❌ Não configurado'}</p>
+    <p><b>Endpoint:</b> <code>/webhook-boca</code></p>
     """
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema de IMAGENS 24x7 INICIADO!")
+    logger.info("🚀 Sistema de automação INICIADO!")
     app.run(host='0.0.0.0', port=port, debug=False)
