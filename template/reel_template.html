@@ -5,48 +5,125 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Boca no Trombone - Reel</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
-        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #1a1a1a; padding: 20px; }
-        .reel-container { width: 360px; height: 640px; background-color: #000; border-radius: 20px; overflow: hidden; position: relative; box-shadow: 0 0 30px rgba(255, 0, 0, 0.4); display: flex; flex-direction: column; }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+            font-family: 'Roboto', Arial, sans-serif; 
+        }
         
-        .image-section { height: 35%; background: #2c3e50; display: flex; justify-content: center; align-items: center; color: white; font-size: 18px; font-weight: bold; text-align: center; padding: 20px; border-bottom: 2px solid #333; }
-        .logo-section { height: 30%; display: flex; justify-content: center; align-items: center; padding: 20px; }
-        .logo { width: 140px; height: 140px; background: #e60000; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; font-weight: bold; font-size: 18px; text-align: center; border: 5px solid white; box-shadow: 0 0 25px rgba(230, 0, 0, 0.8); }
-        .content-section { height: 35%; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px; }
-        .red-box { background-color: #e60000; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
-        .white-box { background-color: white; padding: 15px; border-radius: 8px; text-align: center; }
-        .headline { color: #000; font-weight: 800; font-size: 18px; line-height: 1.3; }
-        .category { position: absolute; top: 20px; left: 20px; background: #e60000; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 14px; }
-        .brand { position: absolute; top: 20px; right: 20px; color: white; font-weight: bold; font-size: 16px; }
-        .hashtag { position: absolute; bottom: 20px; left: 20px; color: #ffcc00; font-weight: bold; font-size: 14px; }
+        body { 
+            width: 1080px; 
+            height: 1920px; 
+            background-color: #000; 
+            color: white; 
+            position: relative; 
+            overflow: hidden;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .header {
+            width: 100%;
+            background-color: #e60000;
+            padding: 30px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 42px;
+        }
+        
+        .image-container {
+            width: 100%;
+            height: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+        }
+        
+        .news-image {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border: 3px solid #fff;
+            border-radius: 15px;
+        }
+        
+        .headline-container {
+            width: 90%;
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+        
+        .headline {
+            color: #000;
+            font-weight: 800;
+            font-size: 48px;
+            text-align: center;
+            line-height: 1.2;
+        }
+        
+        .arrow {
+            position: absolute;
+            bottom: 100px;
+            font-size: 80px;
+            color: #ffcc00;
+            animation: bounce 2s infinite;
+        }
+        
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .hashtag {
+            color: #ffcc00;
+            margin-top: 15px;
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-20px);}
+            60% {transform: translateY(-10px);}
+        }
     </style>
 </head>
 <body>
-    <div class="reel-container">
-        <div class="category">{{ categoria }}</div>
-        <div class="brand">BOCA NO TROMBONE</div>
+    <div class="container">
+        <div class="header">BOCA NO TROMBONE - ILHABELA</div>
         
-        <div class="image-section">
-            {% if imagem_url and imagem_url != '' %}
-                IMAGEM CARREGADA: {{ imagem_url }}
+        <div class="image-container">
+            {% if imagem_url %}
+            <img src="{{ imagem_url }}" alt="Imagem da notícia" class="news-image">
             {% else %}
-                IMAGEM FORNECIDA PELO WP
+            <div style="color: white; font-size: 32px; text-align: center;">
+                IMAGEM FORNECIDA PELO WORDPRESS
+            </div>
             {% endif %}
         </div>
         
-        <div class="logo-section">
-            <div class="logo">LOGO</div>
+        <div class="headline-container">
+            <div class="headline">{{ titulo }}</div>
         </div>
         
-        <div class="content-section">
-            <div class="red-box">
-                <div class="white-box">
-                    <div class="headline">{{ titulo }}</div>
-                </div>
-            </div>
-        </div>
+        <div class="arrow">⬇️</div>
         
-        <div class="hashtag">{{ hashtags }}</div>
+        <div class="footer">
+            @bocanotrombonelitoral
+            <div class="hashtag">{{ hashtags }}</div>
+        </div>
     </div>
 </body>
 </html>
