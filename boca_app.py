@@ -4,6 +4,7 @@ import logging
 import requests
 import json
 import re
+import time
 from base64 import b64encode
 
 # Configurar logging
@@ -15,10 +16,6 @@ app = Flask(__name__)
 # ⚡ VARIÁVEIS PARA INSTAGRAM:
 INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOKEN_BOCA', '') or os.getenv('USER_ACCESS_TOKEN', '')
 INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_ID', '17841464327364824')
-
-# ⚡ VARIÁVEIS PARA FACEBOOK:
-FACEBOOK_ACCESS_TOKEN = os.getenv('PAGE_TOKEN_BOCA', '') or os.getenv('USER_ACCESS_TOKEN', '')
-FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '213776928485804')
 
 # ⚡ VARIÁVEIS DO WORDPRESS:
 WP_URL = os.getenv('MP_URL', 'https://jornalvozdolitoral.com')
@@ -39,9 +36,7 @@ def limpar_html(texto):
     """Remove tags HTML do texto"""
     if not texto:
         return ""
-    # Remove tags HTML
     texto_limpo = re.sub('<[^>]+>', '', texto)
-    # Substitui entidades HTML
     texto_limpo = texto_limpo.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
     return texto_limpo.strip()
 
@@ -94,36 +89,38 @@ def publicar_no_instagram(url_imagem, legenda):
         logger.error(f"💥 Erro Instagram: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-def publicar_no_facebook(url_imagem, legenda):
-    """Publica IMAGEM no Facebook"""
+def obter_imagem_destaque(post_id):
+    """Obtém a imagem de destaque original do post"""
     try:
-        logger.info(f"📘 Publicando no Facebook")
-        
-        if not FACEBOOK_ACCESS_TOKEN or not FACEBOOK_PAGE_ID:
-            return {"status": "error", "message": "❌ Configuração Facebook incompleta"}
-        
-        # Publicar diretamente no Facebook
-        publish_url = f"https://graph.facebook.com/v18.0/{FACEBOOK_PAGE_ID}/photos"
-        payload = {
-            'url': url_imagem,
-            'message': legenda,
-            'access_token': FACEBOOK_ACCESS_TOKEN
-        }
-        
-        logger.info("🚀 Publicando no Facebook...")
-        response = requests.post(publish_url, data=payload, timeout=30)
-        result = response.json()
-        
-        if 'id' in result:
-            logger.info(f"🎉 Facebook OK! ID: {result['id']}")
-            return {"status": "success", "id": result['id']}
-        else:
-            logger.error(f"❌ Erro Facebook: {result}")
-            return {"status": "error", "message": result}
+        if not HEADERS_WP:
+            return None
             
+        # Buscar dados do post
+        post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
+        response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
+        
+        if response.status_code != 200:
+            return None
+            
+        post_data = response.json()
+        id_imagem_destaque = post_data.get('featured_media')
+        
+        if not id_imagem_destaque:
+            return None
+            
+        # Buscar URL da imagem de destaque
+        media_url = f"{WP_URL}/wp-json/wp/v2/media/{id_imagem_destaque}"
+        media_response = requests.get(media_url, headers=HEADERS_WP, timeout=15)
+        
+        if media_response.status_code != 200:
+            return None
+            
+        media_data = media_response.json()
+        return media_data.get('source_url')
+        
     except Exception as e:
-        logger.error(f"💥 Erro Facebook: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"💥 Erro ao buscar imagem: {str(e)}")
+        return None
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
@@ -132,58 +129,44 @@ def handle_webhook():
         data = request.json
         logger.info("🌐 Webhook recebido do WordPress")
         
-        # Extrair post_id do webhook
         post_id = data.get('post_id')
         if not post_id:
             return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
-        # URL da imagem pronta (post_social_ID.jpg)
-        imagem_url = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
+        # 🖼️ USAR IMAGEM ORIGINAL (não post_social)
+        imagem_url = obter_imagem_destaque(post_id)
         
-        # Se não tiver config do WordPress, usar dados simples do webhook
-        if not HEADERS_WP:
-            titulo = data.get('post', {}).get('post_title', 'Título da notícia')
-            resumo = data.get('post', {}).get('post_excerpt', 'Resumo da notícia')
-            titulo = limpar_html(titulo)
-            resumo = limpar_html(resumo)
-        else:
-            # Buscar dados do post no WordPress
-            post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-            response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
-            
-            if response.status_code != 200:
-                return jsonify({"status": "error", "message": "❌ Erro ao buscar post"}), 500
-            
-            post_data = response.json()
-            
-            # Extrair título e resumo (sem BeautifulSoup)
-            titulo = limpar_html(post_data.get('title', {}).get('rendered', ''))
-            resumo = limpar_html(post_data.get('excerpt', {}).get('rendered', ''))
+        if not imagem_url:
+            logger.error("❌ Nenhuma imagem encontrada")
+            return jsonify({
+                "status": "error", 
+                "message": "Nenhuma imagem de destaque encontrada"
+            }), 404
         
-        # Criar legenda
-        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa em nosso site. Link na bio!\n\n#noticias #litoralnorte #brasil #jornalismo"
+        # Dados simples
+        titulo = data.get('post', {}).get('post_title', 'Título da notícia')
+        resumo = data.get('post', {}).get('post_excerpt', 'Resumo da notícia')
         
-        # 🚀 PUBLICAR NAS DUAS REDES
+        titulo = limpar_html(titulo)
+        resumo = limpar_html(resumo)
+        
+        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa em nosso site!\n\n#noticias #litoralnorte"
+        
+        # 🚀 PUBLICAR APENAS NO INSTAGRAM (por enquanto)
         resultado_instagram = publicar_no_instagram(imagem_url, legenda)
-        resultado_facebook = publicar_no_facebook(imagem_url, legenda)
         
-        # Verificar resultados
-        sucesso_instagram = resultado_instagram.get('status') == 'success'
-        sucesso_facebook = resultado_facebook.get('status') == 'success'
-        
-        if sucesso_instagram or sucesso_facebook:
+        if resultado_instagram.get('status') == 'success':
             return jsonify({
                 "status": "success",
-                "message": "Publicação realizada",
+                "message": "Publicação no Instagram realizada",
                 "instagram": resultado_instagram,
-                "facebook": resultado_facebook
+                "imagem_utilizada": imagem_url
             })
         else:
             return jsonify({
                 "status": "error", 
-                "message": "Erro nas publicações",
-                "instagram": resultado_instagram,
-                "facebook": resultado_facebook
+                "message": "Erro na publicação",
+                "instagram": resultado_instagram
             }), 500
         
     except Exception as e:
@@ -194,14 +177,13 @@ def handle_webhook():
 def index():
     """Página inicial com status"""
     instagram_ok = bool(INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID)
-    facebook_ok = bool(FACEBOOK_ACCESS_TOKEN and FACEBOOK_PAGE_ID)
     wp_ok = bool(WP_USER and WP_PASSWORD)
     
     return f"""
     <h1>🔧 Status do Sistema Boca no Trombone</h1>
     <p><b>Instagram:</b> {instagram_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>Facebook:</b> {facebook_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>WordPress:</b> {wp_ok and '✅ Configurado' or '❌ Não configurado'}</p>
+    <p><b>WordPress API:</b> {wp_ok and '✅ Configurado' or '❌ Não configurado'}</p>
+    <p><b>Modo:</b> Usando imagens originais (não post_social)</p>
     <p><b>Endpoint:</b> <code>/webhook-boca</code></p>
     """
 
