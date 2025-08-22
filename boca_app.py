@@ -89,39 +89,6 @@ def publicar_no_instagram(url_imagem, legenda):
         logger.error(f"💥 Erro Instagram: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-def obter_imagem_destaque(post_id):
-    """Obtém a imagem de destaque original do post"""
-    try:
-        if not HEADERS_WP:
-            return None
-            
-        # Buscar dados do post
-        post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-        response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
-        
-        if response.status_code != 200:
-            return None
-            
-        post_data = response.json()
-        id_imagem_destaque = post_data.get('featured_media')
-        
-        if not id_imagem_destaque:
-            return None
-            
-        # Buscar URL da imagem de destaque
-        media_url = f"{WP_URL}/wp-json/wp/v2/media/{id_imagem_destaque}"
-        media_response = requests.get(media_url, headers=HEADERS_WP, timeout=15)
-        
-        if media_response.status_code != 200:
-            return None
-            
-        media_data = media_response.json()
-        return media_data.get('source_url')
-        
-    except Exception as e:
-        logger.error(f"💥 Erro ao buscar imagem: {str(e)}")
-        return None
-
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
     """Endpoint para receber webhooks do WordPress"""
@@ -134,25 +101,39 @@ def handle_webhook():
             return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
         # 🖼️ USAR IMAGEM ORIGINAL (não post_social)
-        imagem_url = obter_imagem_destaque(post_id)
+        imagem_url = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
         
-        if not imagem_url:
-            logger.error("❌ Nenhuma imagem encontrada")
+        # ⏰ AGUARDAR até a imagem ficar pronta (SEU sistema gera)
+        logger.info(f"⏰ Aguardando imagem post_social_{post_id}.jpg ser gerada...")
+        
+        for tentativa in range(12):  # Tenta por 6 minutos (12 x 30 segundos)
+            try:
+                response = requests.head(imagem_url, timeout=5)
+                if response.status_code == 200:
+                    logger.info(f"✅ Imagem encontrada na tentativa {tentativa + 1}")
+                    break
+                else:
+                    logger.info(f"⏳ Tentativa {tentativa + 1}: Imagem ainda não disponível")
+            except Exception as e:
+                logger.info(f"⏳ Tentativa {tentativa + 1}: Erro ao verificar imagem - {e}")
+            
+            time.sleep(30)  # Espera 30 segundos entre tentativas
+        else:
+            logger.error(f"❌ Imagem post_social_{post_id}.jpg não foi gerada após 6 minutos")
             return jsonify({
                 "status": "error", 
-                "message": "Nenhuma imagem de destaque encontrada"
+                "message": f"Imagem post_social_{post_id}.jpg não foi gerada"
             }), 404
         
-        # Dados simples
+        # Dados para publicação
         titulo = data.get('post', {}).get('post_title', 'Título da notícia')
         resumo = data.get('post', {}).get('post_excerpt', 'Resumo da notícia')
-        
         titulo = limpar_html(titulo)
         resumo = limpar_html(resumo)
         
-        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa em nosso site!\n\n#noticias #litoralnorte"
+        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa!\n\n#noticias #litoralnorte"
         
-        # 🚀 PUBLICAR APENAS NO INSTAGRAM (por enquanto)
+        # 🚀 PUBLICAR
         resultado_instagram = publicar_no_instagram(imagem_url, legenda)
         
         if resultado_instagram.get('status') == 'success':
@@ -177,17 +158,26 @@ def handle_webhook():
 def index():
     """Página inicial com status"""
     instagram_ok = bool(INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID)
-    wp_ok = bool(WP_USER and WP_PASSWORD)
     
     return f"""
     <h1>🔧 Status do Sistema Boca no Trombone</h1>
     <p><b>Instagram:</b> {instagram_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>WordPress API:</b> {wp_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>Modo:</b> Usando imagens originais (não post_social)</p>
+    <p><b>Modo:</b> Aguardando imagem post_social_XXXXX.jpg</p>
     <p><b>Endpoint:</b> <code>/webhook-boca</code></p>
+    <p><b>Health Check:</b> <a href="/health">/health</a></p>
     """
+
+@app.route('/health')
+def health_check():
+    """Health check para manter o sistema acordado"""
+    return jsonify({
+        "status": "active", 
+        "service": "boca-no-trombone",
+        "timestamp": time.time(),
+        "instagram_configured": bool(INSTAGRAM_ACCESS_TOKEN)
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema de automação INICIADO!")
+    logger.info("🚀 Sistema 24x7 INICIADO!")
     app.run(host='0.0.0.0', port=port, debug=False)
