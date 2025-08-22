@@ -3,7 +3,7 @@ import os
 import logging
 import requests
 import json
-from bs4 import BeautifulSoup
+import re
 from base64 import b64encode
 
 # Configurar logging
@@ -35,10 +35,20 @@ if WP_USER and WP_PASSWORD:
 else:
     logger.warning("⚠️ Configuração WordPress incompleta")
 
+def limpar_html(texto):
+    """Remove tags HTML do texto"""
+    if not texto:
+        return ""
+    # Remove tags HTML
+    texto_limpo = re.sub('<[^>]+>', '', texto)
+    # Substitui entidades HTML
+    texto_limpo = texto_limpo.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+    return texto_limpo.strip()
+
 def publicar_no_instagram(url_imagem, legenda):
     """Publica IMAGEM no Instagram"""
     try:
-        logger.info(f"📸 Publicando no Instagram: {legenda[:50]}...")
+        logger.info(f"📸 Publicando no Instagram")
         
         if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_ACCOUNT_ID:
             return {"status": "error", "message": "❌ Configuração Instagram incompleta"}
@@ -87,7 +97,7 @@ def publicar_no_instagram(url_imagem, legenda):
 def publicar_no_facebook(url_imagem, legenda):
     """Publica IMAGEM no Facebook"""
     try:
-        logger.info(f"📘 Publicando no Facebook: {legenda[:50]}...")
+        logger.info(f"📘 Publicando no Facebook")
         
         if not FACEBOOK_ACCESS_TOKEN or not FACEBOOK_PAGE_ID:
             return {"status": "error", "message": "❌ Configuração Facebook incompleta"}
@@ -127,21 +137,28 @@ def handle_webhook():
         if not post_id:
             return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
-        # Buscar dados do post no WordPress
-        post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
-        response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
-        
-        if response.status_code != 200:
-            return jsonify({"status": "error", "message": "❌ Erro ao buscar post"}), 500
-        
-        post_data = response.json()
-        
-        # Extrair título e resumo
-        titulo = BeautifulSoup(post_data.get('title', {}).get('rendered', ''), 'html.parser').get_text()
-        resumo = BeautifulSoup(post_data.get('excerpt', {}).get('rendered', ''), 'html.parser').get_text(strip=True)
-        
         # URL da imagem pronta (post_social_ID.jpg)
         imagem_url = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
+        
+        # Se não tiver config do WordPress, usar dados simples do webhook
+        if not HEADERS_WP:
+            titulo = data.get('post', {}).get('post_title', 'Título da notícia')
+            resumo = data.get('post', {}).get('post_excerpt', 'Resumo da notícia')
+            titulo = limpar_html(titulo)
+            resumo = limpar_html(resumo)
+        else:
+            # Buscar dados do post no WordPress
+            post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
+            response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
+            
+            if response.status_code != 200:
+                return jsonify({"status": "error", "message": "❌ Erro ao buscar post"}), 500
+            
+            post_data = response.json()
+            
+            # Extrair título e resumo (sem BeautifulSoup)
+            titulo = limpar_html(post_data.get('title', {}).get('rendered', ''))
+            resumo = limpar_html(post_data.get('excerpt', {}).get('rendered', ''))
         
         # Criar legenda
         legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa em nosso site. Link na bio!\n\n#noticias #litoralnorte #brasil #jornalismo"
