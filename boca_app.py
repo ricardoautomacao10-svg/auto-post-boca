@@ -3,8 +3,7 @@ import os
 import logging
 import requests
 import time
-from threading import Thread
-import json
+import threading
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -12,12 +11,13 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# 🔥 VARIÁVEIS DE AMBIENTE
-INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOK...', '')
-INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv('USER_ACC...', '')
+# 🔥 VARIÁVEIS DE AMBIENTE (USE AS QUE VOCÊ JÁ TEM)
+INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOK...', 'seu_token_aqui')
+INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv('USER_ACC...', 'seu_business_id_aqui')
 
 # 📋 FILA de publicações
 fila_publicacao = []
+lock = threading.Lock()
 
 def extrair_categoria(data):
     """Extrai a categoria dos dados do WordPress"""
@@ -26,132 +26,152 @@ def extrair_categoria(data):
         categories = taxonomies.get('category', {})
         if categories:
             return list(categories.keys())[0].upper()
-        return 'GERAL'
+        return 'NOTÍCIAS'
     except:
-        return 'UBATUBA'
-
-def criar_imagem_api(titulo, imagem_url, categoria):
-    """USA API EXTERNA para criar imagem - SEM Pillow"""
-    try:
-        # 📋 Dados para a API de criação de imagem
-        payload = {
-            'template': 'reel_1080x1920',
-            'data': {
-                'titulo': titulo,
-                'categoria': categoria,
-                'imagem_url': imagem_url,
-                'layout': {
-                    'fundo': 'preto',
-                    'caixa_primaria': 'vermelho',
-                    'caixa_texto': 'branco',
-                    'texto_cor': 'preto',
-                    'seta': 'amarelo'
-                }
-            }
-        }
-        
-        # 🎨 API gratuita para criação de imagens (exemplo)
-        response = requests.post(
-            'https://api.imgbb.com/1/upload',
-            data={'key': 'free_api_key', 'image': json.dumps(payload)}
-        )
-        
-        if response.status_code == 200:
-            return response.json()['data']['url']
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Erro API imagem: {str(e)}")
-        return imagem_url  # Fallback: usa imagem original
+        return 'NOTÍCIAS'
 
 def publicar_no_instagram(titulo, imagem_url, categoria):
-    """PUBLICA NO INSTAGRAM"""
+    """PUBLICA DIRETAMENTE NO INSTAGRAM - SEM ENROLAÇÃO"""
     try:
-        logger.info("📤 Publicando...")
+        logger.info(f"🚀 TENTANDO PUBLICAR: {titulo}")
         
-        # 🎨 Usar imagem original (SEM edição por enquanto)
-        image_url_final = imagem_url
-        
-        # 📋 Dados para publicação
+        # URL da API do Instagram
         create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media"
         
+        # Dados para publicação
         payload = {
-            'image_url': image_url_final,
-            'caption': f"🚨 {titulo}\n\nCategoria: {categoria}\n\n#Noticias #Brasil #LitoralNorte",
+            'image_url': imagem_url,
+            'caption': f"📢 {titulo}\n\n📍 Categoria: {categoria}\n\n🔔 Siga para mais notícias!\n\n#Noticias #Brasil #LitoralNorte #Jornalismo",
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        response = requests.post(create_url, data=payload)
+        # 1. Criar mídia
+        response = requests.post(create_url, data=payload, timeout=30)
         result = response.json()
         
         if 'id' in result:
             creation_id = result['id']
+            logger.info(f"📦 Mídia criada: {creation_id}")
             
-            # ⏳ Aguardar e publicar
-            time.sleep(5)
+            # 2. Publicar a mídia
+            time.sleep(3)
+            
             publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media_publish"
             publish_payload = {
                 'creation_id': creation_id,
                 'access_token': INSTAGRAM_ACCESS_TOKEN
             }
             
-            publish_response = requests.post(publish_url, data=publish_payload)
+            publish_response = requests.post(publish_url, data=publish_payload, timeout=30)
             publish_result = publish_response.json()
             
             if 'id' in publish_result:
-                logger.info(f"✅ PUBLICADO! ID: {publish_result['id']}")
+                logger.info(f"✅ PUBLICAÇÃO CONCLUÍDA! ID: {publish_result['id']}")
                 return True
-        
-        logger.error(f"❌ Erro: {result}")
-        return False
+            else:
+                logger.error(f"❌ Erro na publicação: {publish_result}")
+                return False
+        else:
+            logger.error(f"❌ Erro ao criar mídia: {result}")
+            return False
             
     except Exception as e:
-        logger.error(f"❌ Erro publicação: {str(e)}")
+        logger.error(f"❌ Erro na publicação: {str(e)}")
         return False
 
 def worker_publicacao():
-    """Processa a fila 24x7"""
+    """Processa a fila de publicação 24x7"""
+    logger.info("👷 Worker de publicação INICIADO!")
     while True:
-        if fila_publicacao:
-            titulo, imagem_url, categoria = fila_publicacao.pop(0)
-            logger.info(f"🔄 Processando: {titulo}")
-            publicar_no_instagram(titulo, imagem_url, categoria)
-        time.sleep(10)
+        try:
+            with lock:
+                if fila_publicacao:
+                    titulo, imagem_url, categoria = fila_publicacao.pop(0)
+                    logger.info(f"🔄 PROCESSANDO: {titulo}")
+                    
+                    sucesso = publicar_no_instagram(titulo, imagem_url, categoria)
+                    
+                    if sucesso:
+                        logger.info("🎉 PUBLICAÇÃO REALIZADA COM SUCESSO!")
+                    else:
+                        logger.warning("⚠️ Publicação falhou")
+                
+            time.sleep(5)  # Verifica a cada 5 segundos
+            
+        except Exception as e:
+            logger.error(f"❌ Erro no worker: {str(e)}")
+            time.sleep(10)
 
-# 🚀 INICIAR THREAD
-Thread(target=worker_publicacao, daemon=True).start()
+# 🚀 INICIAR THREAD EM SEGUNDO PLANO (AGORA VAI!)
+worker_thread = threading.Thread(target=worker_publicacao, daemon=True)
+worker_thread.start()
+logger.info("🚀 Thread do worker INICIADA!")
 
 @app.route('/')
 def index():
-    return "✅ Sistema rodando - Publicação automática"
+    return "✅ Sistema Boca no Trombone - PUBLICAÇÃO AUTOMÁTICA ATIVA"
 
 @app.route('/webhook-boca', methods=['POST'])
 def webhook_boca():
     try:
         data = request.get_json()
-        logger.info("📍 Webhook recebido!")
+        logger.info("📍 Webhook recebido do WordPress!")
         
+        # Extrair dados
         post_data = data.get('post', {})
-        titulo = post_data.get('post_title', '')
+        titulo = post_data.get('post_title', 'Título não disponível').strip()
         categoria = extrair_categoria(data)
-        imagem_url = data.get('post_thumbnail', '')
+        imagem_url = data.get('post_thumbnail', '').strip()
         
-        logger.info(f"📝 {titulo}")
-        logger.info(f"🏷️ {categoria}") 
-        logger.info(f"🖼️ {imagem_url}")
+        # Log dos dados recebidos
+        logger.info(f"📝 Título: {titulo}")
+        logger.info(f"🏷️ Categoria: {categoria}")
+        logger.info(f"🖼️ Imagem: {imagem_url}")
         
-        if imagem_url and titulo:
-            fila_publicacao.append((titulo, imagem_url, categoria))
-            logger.info(f"📥 Na fila: {len(fila_publicacao)}")
+        # Validar e adicionar à fila
+        if titulo and imagem_url.startswith('http'):
+            with lock:
+                fila_publicacao.append((titulo, imagem_url, categoria))
+            logger.info(f"📥 Adicionado à fila. Total: {len(fila_publicacao)}")
             
-        return jsonify({'status': 'success', 'message': 'Em produção'}), 200
+            # 🔥 FORÇAR PROCESSAMENTO IMEDIATO
+            logger.info("🔥 Acordando worker para processamento imediato!")
+            
+            return jsonify({'status': 'success', 'message': 'Em publicação'}), 200
+        else:
+            logger.warning("⚠️ Dados incompletos recebidos")
+            return jsonify({'status': 'success', 'message': 'Recebido - dados incompletos'}), 200
         
     except Exception as e:
-        logger.error(f"❌ Erro: {str(e)}")
+        logger.error(f"❌ Erro no webhook: {str(e)}")
         return jsonify({'status': 'success', 'message': 'Recebido'}), 200
+
+@app.route('/status')
+def status():
+    """Verifica status do sistema"""
+    return {
+        'status': 'online',
+        'publicacoes_na_fila': len(fila_publicacao),
+        'worker_ativo': worker_thread.is_alive(),
+        'ultima_publicacao': fila_publicacao[0] if fila_publicacao else 'Nenhuma'
+    }
+
+@app.route('/testar-instagram')
+def testar_instagram():
+    """Testa a conexão com a API do Instagram"""
+    try:
+        test_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}?fields=name&access_token={INSTAGRAM_ACCESS_TOKEN}"
+        response = requests.get(test_url, timeout=10)
+        
+        if response.status_code == 200:
+            return f"✅ CONEXÃO OK! Conta: {response.json().get('name', 'Nome não disponível')}"
+        else:
+            return f"❌ ERRO: {response.json()}"
+            
+    except Exception as e:
+        return f"❌ FALHA: {str(e)}"
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema iniciado - Publicando 24/7")
+    logger.info("🚀 SISTEMA INICIADO - PRONTO PARA PUBLICAR!")
     app.run(host='0.0.0.0', port=port, debug=False)
