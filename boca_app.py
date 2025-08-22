@@ -4,6 +4,7 @@ import logging
 import requests
 import json
 from jinja2 import Template
+import time
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,7 @@ template_html = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boca no Trombone - Reel</title>
+    <title>Boca no Trombone - Post</title>
     <style>
         * { 
             margin: 0; 
@@ -32,7 +33,7 @@ template_html = """
         
         body { 
             width: 1080px; 
-            height: 1920px; 
+            height: 1080px; 
             background-color: #000; 
             color: white; 
             position: relative; 
@@ -46,29 +47,30 @@ template_html = """
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
         }
         
         .header {
             width: 100%;
             background-color: #e60000;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
             font-weight: bold;
-            font-size: 42px;
+            font-size: 32px;
         }
         
         .image-container {
-            width: 100%;
-            height: 50%;
+            width: 80%;
+            height: 60%;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 40px;
+            margin: 20px 0;
         }
         
         .news-image {
-            max-width: 90%;
-            max-height: 90%;
+            max-width: 100%;
+            max-height: 100%;
             object-fit: contain;
             border: 3px solid #fff;
             border-radius: 15px;
@@ -77,50 +79,36 @@ template_html = """
         .headline-container {
             width: 90%;
             background-color: #fff;
-            padding: 30px;
-            border-radius: 15px;
-            margin-top: 30px;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
         }
         
         .headline {
             color: #000;
-            fontWeight: 800;
-            fontSize: 48px;
-            textAlign: center;
-            lineHeight: 1.2;
-        }
-        
-        .arrow {
-            position: absolute;
-            bottom: 100px;
-            font-size: 80px;
-            color: #ffcc00;
-            animation: bounce 2s infinite;
+            font-weight: 800;
+            font-size: 36px;
+            text-align: center;
+            line-height: 1.2;
         }
         
         .footer {
-            position: absolute;
-            bottom: 30px;
             width: 100%;
             text-align: center;
-            font-size: 32px;
+            font-size: 24px;
             font-weight: bold;
+            padding: 10px;
         }
         
         .hashtag {
             color: #ffcc00;
-            margin-top: 15px;
-        }
-        
-        @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
-            40% {transform: translateY(-20px);}
-            60% {transform: translateY(-10px);}
+            margin-top: 10px;
+            font-size: 20px;
         }
         
         .fallback-text {
             color: white;
-            font-size: 32px;
+            font-size: 24px;
             text-align: center;
             padding: 20px;
         }
@@ -131,21 +119,16 @@ template_html = """
         <div class="header">BOCA NO TROMBONE - ILHABELA</div>
         
         <div class="image-container">
-            {% if video_url and video_url != '' %}
-            <video width="90%" height="90%" controls class="news-image">
-                <source src="{{ video_url }}" type="video/mp4">
-                Seu navegador não suporta vídeos.
-            </video>
+            {% if imagem_url and imagem_url != '' %}
+            <img src="{{ imagem_url }}" alt="Imagem da notícia" class="news-image">
             {% else %}
-            <div class="fallback-text">VÍDEO FORNECIDO PELO WORDPRESS</div>
+            <div class="fallback-text">IMAGEM FORNECIDA PELO WORDPRESS</div>
             {% endif %}
         </div>
         
         <div class="headline-container">
             <div class="headline">{{ titulo }}</div>
         </div>
-        
-        <div class="arrow">⬇️</div>
         
         <div class="footer">
             @bocanotrombonelitoral
@@ -158,10 +141,10 @@ template_html = """
 
 template = Template(template_html)
 
-def publish_to_instagram(titulo, video_url, hashtags):
-    """Publica VÍDEO no Instagram (Reels)"""
+def publish_to_instagram(titulo, imagem_url, hashtags):
+    """Publica IMAGEM no Instagram Feed"""
     try:
-        logger.info(f"🎬 Publicando VÍDEO no Reels: {titulo}")
+        logger.info(f"📸 Publicando IMAGEM: {titulo}")
         
         # VERIFICAR SE AS VARIÁVEIS ESTÃO CONFIGURADAS
         if not INSTAGRAM_ACCESS_TOKEN:
@@ -169,17 +152,16 @@ def publish_to_instagram(titulo, video_url, hashtags):
         if not INSTAGRAM_ACCOUNT_ID:
             return {"status": "error", "message": "❌ INSTAGRAM_ID não configurado"}
         
-        # 1. Criar container para VÍDEO (REELS)
+        # 1. Criar container para IMAGEM
         create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media"
         
         payload = {
-            'media_type': 'REELS',  # ⚡ IMPORTANTE: Especificar que é REELS
-            'video_url': video_url,  # ⚡ URL do VÍDEO
+            'image_url': imagem_url,  # ⚡ IMAGEM (não vídeo)
             'caption': f"{titulo}\n\n{hashtags}\n\n@bocanotrombonelitoral",
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        logger.info(f"📦 Criando container de VÍDEO...")
+        logger.info(f"📦 Criando container de IMAGEM...")
         response = requests.post(create_url, data=payload, timeout=30)
         result = response.json()
         
@@ -188,22 +170,22 @@ def publish_to_instagram(titulo, video_url, hashtags):
             return {"status": "error", "message": result}
         
         creation_id = result['id']
-        logger.info(f"✅ Container de vídeo criado: {creation_id}")
+        logger.info(f"✅ Container de imagem criado: {creation_id}")
         
-        # 2. Publicar o VÍDEO (REELS)
+        # 2. Publicar a IMAGEM
         publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
         publish_payload = {
             'creation_id': creation_id,
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        logger.info(f"🚀 Publicando REELS no Instagram...")
+        logger.info(f"🚀 Publicando IMAGEM no Instagram...")
         publish_response = requests.post(publish_url, data=publish_payload, timeout=30)
         publish_result = publish_response.json()
         
         if 'id' in publish_result:
-            logger.info(f"🎉 REELS PUBLICADO COM SUCESSO! ID: {publish_result['id']}")
-            return {"status": "success", "id": publish_result['id'], "message": "Reel publicado com sucesso!"}
+            logger.info(f"🎉 IMAGEM PUBLICADA COM SUCESSO! ID: {publish_result['id']}")
+            return {"status": "success", "id": publish_result['id'], "message": "Imagem publicada com sucesso!"}
         else:
             logger.error(f"❌ Erro na publicação: {publish_result}")
             return {"status": "error", "message": publish_result}
@@ -214,29 +196,32 @@ def publish_to_instagram(titulo, video_url, hashtags):
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
-    """Endpoint para receber webhooks do WordPress - VERSÃO PARA VÍDEOS"""
+    """Endpoint para receber webhooks do WordPress - PARA IMAGENS"""
     try:
         data = request.json
-        logger.info(f"🌐 Webhook recebido: {json.dumps(data)}")
+        logger.info(f"🌐 Webhook recebido do WordPress")
         
-        # Extrair dados da notícia
-        titulo = data.get('titulo', 'Título do vídeo')
-        video_url = data.get('video_url', '')  # ⚡ AGORA É video_url
-        categoria = data.get('categoria', 'Geral')
-        hashtags = data.get('hashtags', '#Noticias #LitoralNorte')
+        # Extrair dados do WordPress
+        titulo = data.get('post', {}).get('post_title', 'Título da notícia')
+        imagem_url = data.get('post_thumbnail', '')  # ⚡ IMAGEM da notícia
         
-        # 🚀 PUBLICAR VÍDEO NO INSTAGRAM (REELS)
-        publication_result = publish_to_instagram(titulo, video_url, hashtags)
+        # Extrair categoria e criar hashtags
+        categorias = data.get('taxonomies', {}).get('category', {})
+        categoria = list(categorias.keys())[0] if categorias else 'Geral'
+        hashtags = f"#{categoria} #Noticias #LitoralNorte" if categoria else "#Noticias #LitoralNorte"
+        
+        # 🚀 PUBLICAR IMAGEM NO INSTAGRAM
+        publication_result = publish_to_instagram(titulo, imagem_url, hashtags)
         
         if publication_result['status'] == 'success':
             logger.info(f"✅ Publicação concluída: {publication_result['id']}")
             return jsonify({
                 "status": "success", 
-                "message": "Reel publicado com sucesso!",
+                "message": "Imagem publicada com sucesso!",
                 "instagram_id": publication_result['id'],
                 "dados_recebidos": {
                     "titulo": titulo,
-                    "video_url": video_url,
+                    "imagem_url": imagem_url,
                     "categoria": categoria,
                     "hashtags": hashtags
                 }
@@ -261,15 +246,15 @@ def index():
         account_exists = bool(INSTAGRAM_ACCOUNT_ID)
         
         status_html = f"""
-        <h1>🔧 Status do Sistema Boca no Trombone - REELS</h1>
+        <h1>🔧 Status do Sistema Boca no Trombone - IMAGENS</h1>
         <p><b>PAGE_TOKEN_BOCA:</b> {token_exists and '✅ Configurado' or '❌ Não configurado'}</p>
         <p><b>INSTAGRAM_ID:</b> {account_exists and '✅ Configurado' or '❌ Não configurado'}</p>
         <p><b>Instagram Account ID:</b> {INSTAGRAM_ACCOUNT_ID}</p>
         <p><b>Access Token (início):</b> {INSTAGRAM_ACCESS_TOKEN[:20] + '...' if INSTAGRAM_ACCESS_TOKEN else 'N/A'}</p>
         <br>
-        <p><b>🚀 SISTEMA DE REELS ATIVADO!</b></p>
-        <p><b>📤 Endpoint Webhook:</b> <code>https://auto-post-boca.onrender.com/webbook-boca</code></p>
-        <p><a href="/test-webhook">🧪 Testar publicação de REELS</a></p>
+        <p><b>🚀 SISTEMA DE IMAGENS ATIVADO!</b></p>
+        <p><b>📤 Endpoint Webhook:</b> <code>https://auto-post-boca.onrender.com/webhook-boca</code></p>
+        <p><b>💡 Funcionamento:</b> Recebe imagens do WordPress e publica no Instagram</p>
         """
         
         # Testar conexão com API se tokens existirem
@@ -295,28 +280,35 @@ def index():
 
 @app.route('/test-webhook', methods=['GET', 'POST'])
 def test_webhook():
-    """Página para testar webhook manualmente - AGORA PUBLICA REELS!"""
+    """Página para testar webhook manualmente - PARA IMAGENS"""
     if request.method == 'POST':
-        # Dados de teste PARA VÍDEO
+        # Dados de teste PARA IMAGEM
         test_data = {
-            "titulo": "TESTE REAL - REELS São Sebastião depois do caos",
-            "video_url": "https://exemplo.com/video.mp4",  # ⚡ URL de um vídeo de teste
-            "categoria": "Urgente",
-            "hashtags": "#SãoSebastião #Noticias #LitoralNorte #BocaNoTrombone"
+            "post": {
+                "post_title": "TESTE - Prefeitura de Caraguatatuba empossa nova comissão"
+            },
+            "post_thumbnail": "https://jornalvozdolitoral.com/wp-content/uploads/2025/08/image-64.png",
+            "taxonomies": {
+                "category": {
+                    "caraguatatuba": {
+                        "name": "Caraguatatuba"
+                    }
+                }
+            }
         }
         
         # Chamar o webhook handler manualmente
         with app.test_client() as client:
-            response = client.post('/webbook-boca', json=test_data)
+            response = client.post('/webhook-boca', json=test_data)
         
         result = response.get_json()
         
         if result and result.get('status') == 'success':
             return f"""
-            <h1>🎉 REELS PUBLICADO COM SUCESSO!</h1>
+            <h1>🎉 IMAGEM PUBLICADA COM SUCESSO!</h1>
             <p><b>ID do Instagram:</b> {result.get('instagram_id', 'N/A')}</p>
             <pre>{json.dumps(result, indent=2)}</pre>
-            <p>✅ Verifique no <a href="https://www.instagram.com/bocanotrombonelitoral" target="_blank">Instagram</a> se o REEL apareceu!</p>
+            <p>✅ Verifique no <a href="https://www.instagram.com/bocanotrombonelitoral" target="_blank">Instagram</a> se a imagem apareceu!</p>
             <p><a href="/test-webhook">↩️ Fazer outro teste</a></p>
             <p><a href="/">🏠 Voltar ao início</a></p>
             """
@@ -329,15 +321,15 @@ def test_webhook():
             """
     
     return """
-    <h1>🧪 Testar Publicação de REELS</h1>
-    <p><b>⚠️ ATENÇÃO:</b> Este teste vai publicar um REEL DE VERDADE no Instagram!</p>
+    <h1>🧪 Testar Publicação de IMAGEM</h1>
+    <p><b>⚠️ ATENÇÃO:</b> Este teste vai publicar uma IMAGEM DE VERDADE no Instagram!</p>
     <form method="POST">
-        <input type="submit" value="🚀 Publicar REEL de Teste" style="padding: 15px; font-size: 16px; background: red; color: white; border: none; border-radius: 5px;">
+        <input type="submit" value="🚀 Publicar Imagem de Teste" style="padding: 15px; font-size: 16px; background: red; color: white; border: none; border-radius: 5px;">
     </form>
     <p><a href="/">🏠 Voltar ao início</a></p>
     """
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema de REELS 24x7 INICIADO!")
+    logger.info("🚀 Sistema de IMAGENS 24x7 INICIADO!")
     app.run(host='0.0.0.0', port=port, debug=False)
