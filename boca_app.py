@@ -3,7 +3,6 @@ import os
 import logging
 import requests
 import time
-import threading
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -12,12 +11,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # 🔥 VARIÁVEIS DE AMBIENTE (USE AS QUE VOCÊ JÁ TEM)
-INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOK...', 'seu_token_aqui')
-INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv('USER_ACC...', 'seu_business_id_aqui')
-
-# 📋 FILA de publicações
-fila_publicacao = []
-lock = threading.Lock()
+INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOK...', '')
+INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv('USER_ACC...', '')
 
 def extrair_categoria(data):
     """Extrai a categoria dos dados do WordPress"""
@@ -31,7 +26,7 @@ def extrair_categoria(data):
         return 'NOTÍCIAS'
 
 def publicar_no_instagram(titulo, imagem_url, categoria):
-    """PUBLICA DIRETAMENTE NO INSTAGRAM - SEM ENROLAÇÃO"""
+    """PUBLICA DIRETAMENTE NO INSTAGRAM - AGORA MESMO"""
     try:
         logger.info(f"🚀 TENTANDO PUBLICAR: {titulo}")
         
@@ -49,6 +44,8 @@ def publicar_no_instagram(titulo, imagem_url, categoria):
         response = requests.post(create_url, data=payload, timeout=30)
         result = response.json()
         
+        logger.info(f"📦 Resposta da API: {result}")
+        
         if 'id' in result:
             creation_id = result['id']
             logger.info(f"📦 Mídia criada: {creation_id}")
@@ -65,6 +62,8 @@ def publicar_no_instagram(titulo, imagem_url, categoria):
             publish_response = requests.post(publish_url, data=publish_payload, timeout=30)
             publish_result = publish_response.json()
             
+            logger.info(f"📦 Resposta da publicação: {publish_result}")
+            
             if 'id' in publish_result:
                 logger.info(f"✅ PUBLICAÇÃO CONCLUÍDA! ID: {publish_result['id']}")
                 return True
@@ -79,37 +78,9 @@ def publicar_no_instagram(titulo, imagem_url, categoria):
         logger.error(f"❌ Erro na publicação: {str(e)}")
         return False
 
-def worker_publicacao():
-    """Processa a fila de publicação 24x7"""
-    logger.info("👷 Worker de publicação INICIADO!")
-    while True:
-        try:
-            with lock:
-                if fila_publicacao:
-                    titulo, imagem_url, categoria = fila_publicacao.pop(0)
-                    logger.info(f"🔄 PROCESSANDO: {titulo}")
-                    
-                    sucesso = publicar_no_instagram(titulo, imagem_url, categoria)
-                    
-                    if sucesso:
-                        logger.info("🎉 PUBLICAÇÃO REALIZADA COM SUCESSO!")
-                    else:
-                        logger.warning("⚠️ Publicação falhou")
-                
-            time.sleep(5)  # Verifica a cada 5 segundos
-            
-        except Exception as e:
-            logger.error(f"❌ Erro no worker: {str(e)}")
-            time.sleep(10)
-
-# 🚀 INICIAR THREAD EM SEGUNDO PLANO (AGORA VAI!)
-worker_thread = threading.Thread(target=worker_publicacao, daemon=True)
-worker_thread.start()
-logger.info("🚀 Thread do worker INICIADA!")
-
 @app.route('/')
 def index():
-    return "✅ Sistema Boca no Trombone - PUBLICAÇÃO AUTOMÁTICA ATIVA"
+    return "✅ Sistema Boca no Trombone - PUBLICAÇÃO DIRETA"
 
 @app.route('/webhook-boca', methods=['POST'])
 def webhook_boca():
@@ -128,16 +99,17 @@ def webhook_boca():
         logger.info(f"🏷️ Categoria: {categoria}")
         logger.info(f"🖼️ Imagem: {imagem_url}")
         
-        # Validar e adicionar à fila
+        # ✅ PUBLICAR DIRETAMENTE - SEM FILA, SEM THREAD!
         if titulo and imagem_url.startswith('http'):
-            with lock:
-                fila_publicacao.append((titulo, imagem_url, categoria))
-            logger.info(f"📥 Adicionado à fila. Total: {len(fila_publicacao)}")
+            logger.info("🔥 PUBLICANDO DIRETAMENTE AGORA!")
+            sucesso = publicar_no_instagram(titulo, imagem_url, categoria)
             
-            # 🔥 FORÇAR PROCESSAMENTO IMEDIATO
-            logger.info("🔥 Acordando worker para processamento imediato!")
-            
-            return jsonify({'status': 'success', 'message': 'Em publicação'}), 200
+            if sucesso:
+                logger.info("🎉 PUBLICAÇÃO REALIZADA COM SUCESSO!")
+                return jsonify({'status': 'success', 'message': 'Publicado no Instagram'}), 200
+            else:
+                logger.warning("⚠️ Falha na publicação, mas webhook recebido")
+                return jsonify({'status': 'success', 'message': 'Recebido - publicação falhou'}), 200
         else:
             logger.warning("⚠️ Dados incompletos recebidos")
             return jsonify({'status': 'success', 'message': 'Recebido - dados incompletos'}), 200
@@ -145,16 +117,6 @@ def webhook_boca():
     except Exception as e:
         logger.error(f"❌ Erro no webhook: {str(e)}")
         return jsonify({'status': 'success', 'message': 'Recebido'}), 200
-
-@app.route('/status')
-def status():
-    """Verifica status do sistema"""
-    return {
-        'status': 'online',
-        'publicacoes_na_fila': len(fila_publicacao),
-        'worker_ativo': worker_thread.is_alive(),
-        'ultima_publicacao': fila_publicacao[0] if fila_publicacao else 'Nenhuma'
-    }
 
 @app.route('/testar-instagram')
 def testar_instagram():
@@ -171,7 +133,21 @@ def testar_instagram():
     except Exception as e:
         return f"❌ FALHA: {str(e)}"
 
+@app.route('/testar-publicacao')
+def testar_publicacao():
+    """Testa uma publicação agora mesmo"""
+    sucesso = publicar_no_instagram(
+        "✅ TESTE: Sistema Boca no Trombone funcionando!",
+        "https://jornalvozdolitoral.com/wp-content/uploads/2025/08/image-59.png",
+        "TESTE"
+    )
+    
+    if sucesso:
+        return "✅ PUBLICAÇÃO REALIZADA!", 200
+    else:
+        return "❌ Falha na publicação. Verifique logs.", 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 SISTEMA INICIADO - PRONTO PARA PUBLICAR!")
+    logger.info("🚀 SISTEMA INICIADO - PUBLICAÇÃO DIRETA!")
     app.run(host='0.0.0.0', port=port, debug=False)
