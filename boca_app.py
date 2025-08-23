@@ -8,6 +8,8 @@ import requests
 import textwrap
 import subprocess
 import tempfile
+import time
+import traceback
 from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -22,7 +24,7 @@ import cloudinary.uploader
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO AUTOMAÇÃO DE REELS v1.0 (Baseado no Feed v2.3)")
+print("🚀 INICIANDO AUTOMAÇÃO DE REELS v1.1 (Nomenclatura Corrigida)")
 
 # Configs do WordPress
 WP_URL = os.getenv('WP_URL')
@@ -37,8 +39,9 @@ else:
     print("❌ [ERRO DE CONFIG] Faltando variáveis de ambiente do WordPress.")
     HEADERS_WP = {}
 
-# Configs da API do Meta (Facebook/Instagram)
-META_API_TOKEN = os.getenv('META_API_TOKEN')
+# --- CORREÇÃO DE NOMENCLATURA APLICADA AQUI ---
+# O código agora busca por 'PAGE_TOKEN_BOCA', conforme seu print.
+META_API_TOKEN = os.getenv('PAGE_TOKEN_BOCA')
 INSTAGRAM_ID = os.getenv('INSTAGRAM_ID')
 FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID')
 if all([META_API_TOKEN, INSTAGRAM_ID, FACEBOOK_PAGE_ID]):
@@ -66,45 +69,35 @@ else:
 def criar_imagem_reel(url_imagem_noticia, titulo_post, categoria):
     print("🎨 [ETAPA 1/5] Iniciando criação da imagem para o Reel...")
     try:
-        # --- Baixar imagens ---
         response_img = requests.get(url_imagem_noticia, stream=True, timeout=15)
         response_img.raise_for_status()
         imagem_noticia = Image.open(io.BytesIO(response_img.content)).convert("RGBA")
 
         logo = Image.open("logo_boca.png").convert("RGBA")
 
-        # --- Definições de Layout e Fontes ---
         IMG_WIDTH, IMG_HEIGHT = 1080, 1920
-        cor_fundo = (0, 0, 0, 255) # Preto
+        cor_fundo = (0, 0, 0, 255)
         cor_vermelha = "#e50000"
         cor_branca = "#ffffff"
         fonte_categoria = ImageFont.truetype("Anton-Regular.ttf", 55)
         fonte_titulo = ImageFont.truetype("Roboto-Black.ttf", 72)
 
-        # --- Montagem da Imagem ---
         imagem_final = Image.new('RGBA', (IMG_WIDTH, IMG_HEIGHT), cor_fundo)
         draw = ImageDraw.Draw(imagem_final)
 
-        # Colar imagem da notícia na metade de cima
         img_w, img_h = 1080, 960
         imagem_noticia_resized = imagem_noticia.resize((img_w, img_h), Image.Resampling.LANCZOS)
         imagem_final.paste(imagem_noticia_resized, (0, 0))
 
-        # Colar logo sobre a imagem
         logo.thumbnail((300, 300))
         pos_logo_x = (IMG_WIDTH - logo.width) // 2
         pos_logo_y = 960 - logo.height - 40
         imagem_final.paste(logo, (pos_logo_x, pos_logo_y), logo)
 
-        # Adicionar textos na metade de baixo
-        padding = 60
         y_cursor = 960 + 80
-
-        # Categoria (caixa vermelha)
         draw.text((IMG_WIDTH / 2, y_cursor), categoria.upper(), font=fonte_categoria, fill=cor_vermelha, anchor="ma")
         y_cursor += 100
 
-        # Título (caixa branca)
         linhas_texto = textwrap.wrap(titulo_post.upper(), width=25)
         texto_junto = "\n".join(linhas_texto)
         draw.text((IMG_WIDTH / 2, y_cursor + 20), texto_junto, font=fonte_titulo, fill=cor_branca, anchor="ma", align="center")
@@ -129,17 +122,10 @@ def criar_video_com_ffmpeg(bytes_imagem):
         audio_path = "audio_fundo.mp3"
 
         comando = [
-            'ffmpeg',
-            '-loop', '1',
-            '-i', tmp_image_path,
-            '-i', audio_path,
-            '-c:v', 'libx264',
-            '-t', '10', # Duração do vídeo
-            '-pix_fmt', 'yuv420p',
-            '-vf', 'scale=1080:1920',
-            '-shortest',
-            '-y',
-            tmp_video_path
+            'ffmpeg', '-loop', '1', '-i', tmp_image_path,
+            '-i', audio_path, '-c:v', 'libx264', '-t', '10',
+            '-pix_fmt', 'yuv420p', '-vf', 'scale=1080:1920',
+            '-shortest', '-y', tmp_video_path
         ]
         
         subprocess.run(comando, check=True, capture_output=True, text=True)
@@ -178,25 +164,20 @@ def upload_para_cloudinary(caminho_video):
 def publicar_reel_no_instagram(video_url, legenda):
     print("📤 [ETAPA 4/5] Publicando Reel no Instagram...")
     try:
-        # Passo 1: Iniciar o upload do vídeo
         url_container = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID}/media"
         params_container = {
-            'media_type': 'REELS',
-            'video_url': video_url,
-            'caption': legenda,
-            'access_token': META_API_TOKEN
+            'media_type': 'REELS', 'video_url': video_url,
+            'caption': legenda, 'access_token': META_API_TOKEN
         }
         r_container = requests.post(url_container, params=params_container, timeout=30)
         r_container.raise_for_status()
         id_criacao = r_container.json()['id']
         print(f"  - Contêiner de mídia criado: {id_criacao}")
 
-        # Passo 2: Publicar o contêiner após o processamento
         url_publicacao = f"https://graph.facebook.com/v19.0/{INSTAGRAM_ID}/media_publish"
         params_publicacao = {'creation_id': id_criacao, 'access_token': META_API_TOKEN}
         
-        # Esperar o vídeo ser processado pela Meta
-        for i in range(10): # Tentar por até 100 segundos
+        for i in range(10):
             print(f"  - Verificando status do upload (tentativa {i+1}/10)...")
             r_publish = requests.post(url_publicacao, params=params_publicacao, timeout=30)
             if r_publish.status_code == 200:
@@ -204,7 +185,7 @@ def publicar_reel_no_instagram(video_url, legenda):
                 return True
             
             error_info = r_publish.json().get('error', {})
-            if error_info.get('code') == 9007: # Status "não está pronto"
+            if error_info.get('code') == 9007:
                 print("  - Vídeo ainda processando, aguardando 10 segundos...")
                 time.sleep(10)
             else:
@@ -225,8 +206,7 @@ def publicar_reel_no_facebook(video_url, legenda):
     try:
         url_post_video = f"https://graph.facebook.com/v19.0/{FACEBOOK_PAGE_ID}/videos"
         params = {
-            'file_url': video_url, 
-            'description': legenda, 
+            'file_url': video_url, 'description': legenda, 
             'access_token': META_API_TOKEN
         }
         r = requests.post(url_post_video, params=params, timeout=180)
