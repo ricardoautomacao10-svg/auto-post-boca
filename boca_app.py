@@ -26,11 +26,10 @@ app = Flask(__name__)
 # Configurar o Jinja2 para ler templates
 env = Environment(loader=FileSystemLoader('.'))
 
-# ⚡ VARIÁVEIS PARA INSTAGRAM:
+# ⚡ VARIÁVEIS DE AMBIENTE:
 INSTAGRAM_ACCESS_TOKEN = os.getenv('PAGE_TOKEN_BOCA', '') or os.getenv('USER_ACCESS_TOKEN', '')
 INSTAGRAM_ACCOUNT_ID = os.getenv('INSTAGRAM_ID', '')
-
-# ⚡ VARIÁVEIS DO WORDPRESS:
+FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '')
 WP_URL = os.getenv('WP_URL', '')
 WP_USER = os.getenv('WP_USER', '')
 WP_PASSWORD = os.getenv('WP_PASSWORD', '')
@@ -86,44 +85,51 @@ def obter_imagem_original(post_id):
         logger.error(f"💥 Erro ao buscar imagem original: {str(e)}")
         return None
 
-# ----- NOVAS FUNÇÕES PARA CRIAÇÃO E PUBLICAÇÃO DE VÍDEO -----
-
-def criar_reel_video(url_imagem, titulo, hashtags):
+def criar_reel_video(url_imagem, titulo, hashtags, categoria):
     """
     Cria um vídeo a partir de um template HTML e dados dinâmicos.
     Retorna o caminho do arquivo .mp4 se a criação for bem-sucedida, senão None.
     """
     logger.info("🎬 Iniciando a criação do vídeo...")
-
-    # Cria uma pasta temporária para arquivos de trabalho
+    
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
-            # LÓGICA 1: USANDO SELENIUM PARA RENDERIZAR E SALVAR IMAGEM
             logger.info("📸 Renderizando template HTML...")
-            
-            # Use Jinja2 para renderizar o template
             template = env.get_template('template/reel_template.html')
+            
             rendered_html = template.render(
                 imagem_url=url_imagem,
                 titulo=titulo,
-                hashtags=hashtags
+                hashtags=hashtags,
+                categoria=categoria
             )
-            
+
             html_path = os.path.join(tmpdir, "rendered_page.html")
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(rendered_html)
 
+            # --- CONFIGURAÇÃO ATUALIZADA DO SELENIUM ---
             chrome_options = Options()
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("window-size=1080,1920")
+
+            # LINHAS CRÍTICAS ADICIONADAS:
+            chrome_binary_path = os.getenv('GOOGLE_CHROME_BIN')
+            if chrome_binary_path:
+                logger.info(f"Usando Chrome binary de: {chrome_binary_path}")
+                chrome_options.binary_location = chrome_binary_path
+            else:
+                logger.warning("Variável GOOGLE_CHROME_BIN não encontrada. Usando caminho padrão.")
+            # --- FIM DA ATUALIZAÇÃO ---
 
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
 
             driver.get(f"file://{html_path}")
-            time.sleep(3) # Espera a página carregar e a animação inicial
+            time.sleep(3) 
 
             screenshot_path = os.path.join(tmpdir, "frame.png")
             driver.save_screenshot(screenshot_path)
@@ -133,30 +139,21 @@ def criar_reel_video(url_imagem, titulo, hashtags):
                 logger.error("❌ Selenium falhou ao criar a imagem")
                 return None
             
-            # LÓGICA 2: USANDO SUBPROCESS PARA CHAMAR FFmpeg
             logger.info("🎥 Gerando vídeo com FFmpeg...")
-            audio_path = "audio_fundo.mp3" # Arquivo de áudio na mesma pasta do script
+            audio_path = "audio_fundo.mp3"
             output_video_path = os.path.join(tmpdir, "video_final.mp4")
 
             comando_ffmpeg = [
-                'ffmpeg',
-                '-loop', '1',
-                '-i', screenshot_path,
-                '-i', audio_path,
-                '-c:v', 'libx264',
-                '-t', '10', # Duração do vídeo em segundos
-                '-pix_fmt', 'yuv420p',
-                '-vf', 'scale=1080:1920,fps=30',
-                '-y', # Sobrescrever arquivo de saída
-                output_video_path
+                'ffmpeg', '-loop', '1', '-i', screenshot_path,
+                '-i', audio_path, '-c:v', 'libx264', '-t', '10',
+                '-pix_fmt', 'yuv420p', '-vf', 'scale=1080:1920,fps=30',
+                '-y', output_video_path
             ]
             
             subprocess.run(comando_ffmpeg, check=True, capture_output=True, text=True)
 
             if os.path.exists(output_video_path):
-                # Move o arquivo para uma pasta permanente se necessário
-                # No Render, /tmp é o local mais seguro
-                caminho_final = os.path.join(os.environ.get('TMPDIR', '/tmp'), "video_final.mp4")
+                caminho_final = os.path.join(os.environ.get('TMPDIR', '/tmp'), f"video_{int(time.time())}.mp4")
                 shutil.copy(output_video_path, caminho_final)
                 logger.info(f"✅ Vídeo criado com sucesso: {caminho_final}")
                 return caminho_final
@@ -168,9 +165,11 @@ def criar_reel_video(url_imagem, titulo, hashtags):
             logger.error(f"❌ Erro ao rodar FFmpeg: {e.stderr}")
             return None
         except Exception as e:
-            logger.error(f"💥 Erro na criação do vídeo: {str(e)}")
+            logger.error(f"💥 Erro na criação do vídeo: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
-        
+
 def publicar_video_no_instagram(video_url, legenda):
     """
     Publica um vídeo (Reel) no Instagram a partir de uma URL pública.
@@ -180,10 +179,9 @@ def publicar_video_no_instagram(video_url, legenda):
         if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_ACCOUNT_ID:
             return {"status": "error", "message": "❌ Configuração Instagram incompleta"}
 
-        # 1. Criar container para o VÍDEO (Reel)
         create_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media"
         payload = {
-            'video_url': video_url, # URL pública do vídeo
+            'video_url': video_url,
             'media_type': 'REELS',
             'caption': legenda,
             'access_token': INSTAGRAM_ACCESS_TOKEN
@@ -200,14 +198,12 @@ def publicar_video_no_instagram(video_url, legenda):
         creation_id = result['id']
         logger.info(f"✅ Container de vídeo criado: {creation_id}")
 
-        # 2. Publicar o VÍDEO
         publish_url = f"https://graph.facebook.com/v18.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
         publish_payload = {
             'creation_id': creation_id,
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
         
-        # A API pode demorar para processar o vídeo, então vamos tentar novamente se falhar
         for _ in range(5):
             logger.info("🚀 Publicando o Reel...")
             publish_response = requests.post(publish_url, data=publish_payload, timeout=60)
@@ -230,6 +226,37 @@ def publicar_video_no_instagram(video_url, legenda):
         logger.error(f"💥 Erro Instagram: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+def publicar_reel_no_facebook(video_url, legenda):
+    """
+    Publica um vídeo (Reel) em uma Página do Facebook a partir de uma URL pública.
+    """
+    logger.info("📢 Publicando Reel no Facebook...")
+    try:
+        if not INSTAGRAM_ACCESS_TOKEN or not FACEBOOK_PAGE_ID:
+            logger.error("❌ Configuração do Facebook incompleta.")
+            return {"status": "error", "message": "Configuração do Facebook incompleta"}
+
+        post_url = f"https://graph.facebook.com/v18.0/{FACEBOOK_PAGE_ID}/videos"
+        
+        payload = {
+            'file_url': video_url,
+            'description': legenda,
+            'access_token': INSTAGRAM_ACCESS_TOKEN
+        }
+        
+        response = requests.post(post_url, data=payload, timeout=180)
+        result = response.json()
+        
+        if 'id' in result:
+            logger.info(f"🎉 Facebook OK! ID do Post: {result['id']}")
+            return {"status": "success", "id": result['id']}
+        else:
+            logger.error(f"❌ Erro na publicação do Facebook: {result}")
+            return {"status": "error", "message": result}
+
+    except Exception as e:
+        logger.error(f"💥 Erro inesperado ao publicar no Facebook: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
@@ -253,42 +280,54 @@ def handle_webhook():
         # 📝 Dados para publicação
         titulo = limpar_html(data.get('post', {}).get('post_title', 'Título da notícia'))
         resumo = limpar_html(data.get('post', {}).get('post_excerpt', 'Resumo da notícia'))
-        hashtags = "#noticias #litoralnorte"
+        
+        # Tentando buscar a categoria
+        categoria = "Notícias"
+        if 'post' in data and 'terms' in data['post'] and 'category' in data['post']['terms']:
+            terms = data['post']['terms']['category']
+            if terms:
+                categoria = terms[0]['name']
+
+        hashtags = f"#{categoria.replace(' ', '')} #litoralnorte"
         legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa!\n\n{hashtags}"
         
         # 🎬 GERAR O VÍDEO
-        caminho_video_temporario = criar_reel_video(imagem_url, titulo, hashtags)
+        caminho_video_temporario = criar_reel_video(imagem_url, titulo, hashtags, categoria)
 
         if caminho_video_temporario:
             logger.info("✅ Vídeo criado com sucesso. Próximo passo: publicação.")
             
             # --- ATENÇÃO ---
-            # Aqui você precisa de uma função para fazer o upload do vídeo
+            # Aqui você precisa da sua lógica para fazer upload do vídeo
             # para um serviço público (Cloudinary, S3, etc.) e obter a URL.
-            # O Render não mantém arquivos entre as requisições.
-            # resultado_upload = fazer_upload_para_cloudinary(caminho_video_temporario)
-            # video_url_publica = resultado_upload.get('url')
-
-            # Por enquanto, vamos assumir que você tem a URL do vídeo
-            # Se for fazer testes locais, pode usar a URL de um vídeo de exemplo
+            # video_url_publica = fazer_upload_para_cloudinary(caminho_video_temporario)
+            # Para o exemplo, vamos usar uma URL placeholder:
             video_url_publica = 'URL_DO_VIDEO_PUBLICO_AQUI'
-            
-            # 🚀 PUBLICAR O REEL
-            resultado_publicacao = publicar_video_no_instagram(video_url_publica, legenda)
 
-            if resultado_publicacao.get('status') == 'success':
-                return jsonify({
-                    "status": "success",
-                    "message": "Reel publicado no Instagram",
-                    "instagram_id": resultado_publicacao.get('id'),
-                    "video_url": video_url_publica
-                })
-            else:
-                return jsonify({
+            if not video_url_publica or video_url_publica == 'URL_DO_VIDEO_PUBLICO_AQUI':
+                 return jsonify({
                     "status": "error", 
-                    "message": "Erro na publicação do Reel",
-                    "erro": resultado_publicacao
+                    "message": "❌ URL do vídeo pública não foi gerada. Verifique a função de upload."
                 }), 500
+
+            # --- Dispara as publicações ---
+            resultados = {}
+            
+            # 1. Publicar no Instagram
+            resultado_instagram = publicar_video_no_instagram(video_url_publica, legenda)
+            resultados['instagram'] = resultado_instagram
+
+            # 2. Publicar no Facebook
+            resultado_facebook = publicar_reel_no_facebook(video_url_publica, legenda)
+            resultados['facebook'] = resultado_facebook
+            
+            # Resposta final
+            return jsonify({
+                "status": "success",
+                "message": "Processo de publicação finalizado.",
+                "resultados": resultados
+            })
+            
         else:
             return jsonify({
                 "status": "error", 
