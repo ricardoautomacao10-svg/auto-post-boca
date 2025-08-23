@@ -10,11 +10,7 @@ from base64 import b64encode
 import tempfile
 import shutil
 
-# -- Importações para a Geração do Vídeo --
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
+# -- Importações para a Geração do Vídeo (agora usando requests e jinja2) --
 from jinja2 import Environment, FileSystemLoader
 
 # Configurar logging
@@ -33,6 +29,7 @@ FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID', '')
 WP_URL = os.getenv('WP_URL', '')
 WP_USER = os.getenv('WP_USER', '')
 WP_PASSWORD = os.getenv('WP_PASSWORD', '')
+SCREENSHOT_API_KEY = os.getenv('SCREENSHOT_API_KEY', '')
 
 # Configurar headers do WordPress
 HEADERS_WP = {}
@@ -87,58 +84,53 @@ def obter_imagem_original(post_id):
 
 def criar_reel_video(url_imagem, titulo, hashtags, categoria):
     """
-    Cria um vídeo a partir de um template HTML e dados dinâmicos.
-    Retorna o caminho do arquivo .mp4 se a criação for bem-sucedida, senão None.
+    Cria um vídeo a partir de um template HTML, usando uma API externa de screenshot.
     """
-    logger.info("🎬 Iniciando a criação do vídeo...")
+    logger.info("🎬 Iniciando a criação do vídeo (método API)...")
     
+    if not SCREENSHOT_API_KEY:
+        logger.error("❌ Chave da ScreenshotAPI não encontrada.")
+        return None
+
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
+            # 1. Renderizar o template HTML para uma string
             logger.info("📸 Renderizando template HTML...")
             template = env.get_template('template/reel_template.html')
-            
-            rendered_html = template.render(
+            html_content = template.render(
                 imagem_url=url_imagem,
                 titulo=titulo,
                 hashtags=hashtags,
                 categoria=categoria
             )
 
-            html_path = os.path.join(tmpdir, "rendered_page.html")
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(rendered_html)
-
-            # --- CONFIGURAÇÃO ATUALIZADA DO SELENIUM ---
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("window-size=1080,1920")
-
-            # LINHAS CRÍTICAS ADICIONADAS:
-            chrome_binary_path = os.getenv('GOOGLE_CHROME_BIN')
-            if chrome_binary_path:
-                logger.info(f"Usando Chrome binary de: {chrome_binary_path}")
-                chrome_options.binary_location = chrome_binary_path
-            else:
-                logger.warning("Variável GOOGLE_CHROME_BIN não encontrada. Usando caminho padrão.")
-            # --- FIM DA ATUALIZAÇÃO ---
-
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-
-            driver.get(f"file://{html_path}")
-            time.sleep(3) 
-
+            # 2. Chamar a ScreenshotAPI para gerar a imagem
+            logger.info("📲 Chamando a API de screenshot...")
             screenshot_path = os.path.join(tmpdir, "frame.png")
-            driver.save_screenshot(screenshot_path)
-            driver.quit()
             
-            if not os.path.exists(screenshot_path):
-                logger.error("❌ Selenium falhou ao criar a imagem")
+            response = requests.post('https://shot.screenshotapi.net/screenshot',
+                json={
+                    'token': SCREENSHOT_API_KEY,
+                    'html': html_content,
+                    'width': 1080,
+                    'height': 1920,
+                    'output': 'image',
+                    'file_type': 'png',
+                    'wait_for_event': 'load'
+                },
+                stream=True
+            )
+
+            if response.status_code == 200:
+                with open(screenshot_path, 'wb') as f:
+                    for chunk in response.iter_content(1024):
+                        f.write(chunk)
+                logger.info("🖼️ Imagem recebida da API com sucesso.")
+            else:
+                logger.error(f"❌ Erro na API de screenshot: {response.status_code} {response.text}")
                 return None
-            
+
+            # 3. Gerar o vídeo com FFmpeg a partir da imagem recebida
             logger.info("🎥 Gerando vídeo com FFmpeg...")
             audio_path = "audio_fundo.mp3"
             output_video_path = os.path.join(tmpdir, "video_final.mp4")
@@ -173,7 +165,6 @@ def criar_reel_video(url_imagem, titulo, hashtags, categoria):
 def publicar_video_no_instagram(video_url, legenda):
     """
     Publica um vídeo (Reel) no Instagram a partir de uma URL pública.
-    Esta função assume que o vídeo já está hospedado em algum lugar.
     """
     try:
         if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_ACCOUNT_ID:
@@ -230,7 +221,6 @@ def publicar_reel_no_facebook(video_url, legenda):
     """
     Publica um vídeo (Reel) em uma Página do Facebook a partir de uma URL pública.
     """
-    logger.info("📢 Publicando Reel no Facebook...")
     try:
         if not INSTAGRAM_ACCESS_TOKEN or not FACEBOOK_PAGE_ID:
             logger.error("❌ Configuração do Facebook incompleta.")
@@ -281,7 +271,6 @@ def handle_webhook():
         titulo = limpar_html(data.get('post', {}).get('post_title', 'Título da notícia'))
         resumo = limpar_html(data.get('post', {}).get('post_excerpt', 'Resumo da notícia'))
         
-        # Tentando buscar a categoria
         categoria = "Notícias"
         if 'post' in data and 'terms' in data['post'] and 'category' in data['post']['terms']:
             terms = data['post']['terms']['category']
