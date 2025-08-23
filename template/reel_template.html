@@ -4,126 +4,119 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Boca no Trombone - Reel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@700;900&display=swap" rel="stylesheet">
     <style>
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-            font-family: 'Roboto', Arial, sans-serif; 
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
-        body { 
-            width: 1080px; 
-            height: 1920px; 
-            background-color: #000; 
-            color: white; 
-            position: relative; 
+
+        body {
+            width: 1080px;
+            height: 1920px;
+            background-color: #000000; /* FUNDO PRETO */
+            font-family: 'Roboto', sans-serif;
+            position: relative;
             overflow: hidden;
         }
-        
-        .container {
+
+        /* Container para a imagem de fundo do WP */
+        .background-image-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50%; /* Ocupa a metade de cima */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .background-image {
             width: 100%;
             height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            object-fit: cover; /* Garante que a imagem cubra o espaço */
+        }
+
+        /* LOGO Centralizado sobre a imagem */
+        .logo {
+            position: absolute;
+            bottom: 40px; /* Distância da parte de baixo da imagem */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px; /* Ajuste o tamanho do logo se necessário */
         }
         
-        .header {
-            width: 100%;
-            background-color: #e60000;
-            padding: 30px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 42px;
-        }
-        
-        .image-container {
+        /* Container para todo o texto, na metade de baixo */
+        .text-content-container {
+            position: absolute;
+            top: 50%; /* Começa da metade da tela para baixo */
+            left: 0;
             width: 100%;
             height: 50%;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            padding: 40px;
+            padding: 60px;
         }
-        
-        .news-image {
-            max-width: 90%;
-            max-height: 90%;
-            object-fit: contain;
-            border: 3px solid #fff;
-            border-radius: 15px;
+
+        /* CAIXA PRIMARIA D TEXTO EM VERMELHO */
+        .category-box {
+            background-color: #e50000;
+            color: white;
+            padding: 20px 40px;
+            font-size: 55px;
+            font-weight: 900;
+            margin-bottom: 30px;
+            text-transform: uppercase;
         }
-        
-        .headline-container {
-            width: 90%;
-            background-color: #fff;
+
+        /* TEXTO COM CAIXA BRANCA E ESCRITA PRETA (MANCHETE) */
+        .headline-box {
+            background-color: #ffffff;
+            color: #000000;
+            width: 100%;
             padding: 30px;
-            border-radius: 15px;
-            margin-top: 30px;
-        }
-        
-        .headline {
-            color: #000;
-            font-weight: 800;
-            font-size: 48px;
+            font-size: 72px;
+            font-weight: 900;
             text-align: center;
             line-height: 1.2;
         }
-        
+
+        /* SETA INDICANDO PRA BAIXO em amarelo */
         .arrow {
             position: absolute;
-            bottom: 100px;
-            font-size: 80px;
-            color: #ffcc00;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 120px;
+            color: #ffde00;
             animation: bounce 2s infinite;
         }
-        
-        .footer {
-            position: absolute;
-            bottom: 30px;
-            width: 100%;
-            text-align: center;
-            font-size: 32px;
-            font-weight: bold;
-        }
-        
-        .hashtag {
-            color: #ffcc00;
-            margin-top: 15px;
-        }
-        
+
         @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
-            40% {transform: translateY(-20px);}
-            60% {transform: translateY(-10px);}
+            0%, 20%, 50%, 80%, 100% { transform: translate(-50%, 0); }
+            40% { transform: translate(-50%, -30px); }
+            60% { transform: translate(-50%, -15px); }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">BOCA NO TROMBONE - ILHABELA</div>
+    <div class="background-image-container">
+        <img src="{{ imagem_url }}" class="background-image" alt="Imagem da notícia">
         
-        <div class="image-container">
-            {% if imagem_url %}
-            <img src="{{ imagem_url }}" alt="Imagem da notícia" class="news-image">
-            {% else %}
-            <div style="color: white; font-size: 32px; text-align: center;">
-                IMAGEM FORNECIDA PELO WORDPRESS
-            </div>
-            {% endif %}
-        </div>
-        
-        <div class="headline-container">
-            <div class="headline">{{ titulo }}</div>
-        </div>
-        
-        <div class="arrow">⬇️</div>
-        
-        <div class="footer">
-            @bocanotrombonelitoral
-            <div class="hashtag">{{ hashtags }}</div>
-        </div>
+        <img src="logo_boca.png" class="logo" alt="Logo Boca no Trombone">
     </div>
+
+    <div class="text-content-container">
+        <div class="category-box">{{ categoria }}</div>
+
+        <div class="headline-box">{{ titulo }}</div>
+    </div>
+
+    <div class="arrow">▼</div>
 </body>
 </html>
