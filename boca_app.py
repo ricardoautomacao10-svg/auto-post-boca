@@ -5,8 +5,6 @@ import requests
 import json
 import re
 import time
-import threading
-from base64 import b64encode
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -26,15 +24,13 @@ WP_PASSWORD = os.getenv('MP_PASSWORD', '')
 # Configurar headers do WordPress
 HEADERS_WP = {}
 if WP_USER and WP_PASSWORD:
+    from base64 import b64encode
     credentials = f"{WP_USER}:{WP_PASSWORD}"
     token_wp = b64encode(credentials.encode())
     HEADERS_WP = {'Authorization': f'Basic {token_wp.decode("utf-8")}'}
     logger.info("✅ Configuração WordPress OK")
 else:
     logger.warning("⚠️ Configuração WordPress incompleta")
-
-# 📋 FILA SIMPLES para processamento em background
-fila_processamento = []
 
 def limpar_html(texto):
     """Remove tags HTML do texto"""
@@ -47,7 +43,7 @@ def limpar_html(texto):
 def publicar_no_instagram(url_imagem, legenda):
     """Publica IMAGEM no Instagram"""
     try:
-        logger.info(f"📸 Publicando no Instagram: {legenda[:50]}...")
+        logger.info(f"📸 Publicando no Instagram")
         
         if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_ACCOUNT_ID:
             return {"status": "error", "message": "❌ Configuração Instagram incompleta"}
@@ -93,55 +89,43 @@ def publicar_no_instagram(url_imagem, legenda):
         logger.error(f"💥 Erro Instagram: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-def processar_fila():
-    """Processa itens da fila em background"""
-    while True:
-        if fila_processamento:
-            post_id, titulo, resumo = fila_processamento.pop(0)
-            
-            try:
-                logger.info(f"🔍 Processando post_id: {post_id} em background")
-                
-                imagem_url = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
-                
-                # ⏰ AGUARDAR imagem ficar pronta (em background)
-                for tentativa in range(12):  # 6 minutos máximo
-                    try:
-                        response = requests.head(imagem_url, timeout=5)
-                        if response.status_code == 200:
-                            logger.info(f"✅ Imagem {post_id} encontrada!")
-                            break
-                        else:
-                            logger.info(f"⏳ Aguardando imagem {post_id}... Tentativa {tentativa + 1}")
-                    except:
-                        logger.info(f"⏳ Tentativa {tentativa + 1} - Imagem ainda não disponível")
-                    
-                    time.sleep(30)  # Espera 30 segundos
-                else:
-                    logger.error(f"❌ Imagem {post_id} não gerada após 6 minutos")
-                    continue
-                
-                # 📝 Preparar legenda
-                titulo_limpo = limpar_html(titulo)
-                resumo_limpo = limpar_html(resumo)
-                legenda = f"{titulo_limpo}\n\n{resumo_limpo}\n\nLeia a matéria completa!\n\n#noticias #litoralnorte"
-                
-                # 🚀 PUBLICAR
-                resultado = publicar_no_instagram(imagem_url, legenda)
-                
-                if resultado.get('status') == 'success':
-                    logger.info(f"🎉 Post {post_id} publicado com sucesso!")
-                else:
-                    logger.error(f"❌ Erro ao publicar post {post_id}: {resultado}")
-                    
-            except Exception as e:
-                logger.error(f"💥 Erro no processamento do post {post_id}: {str(e)}")
+def obter_imagem_original(post_id):
+    """Obtém a imagem ORIGINAL da notícia"""
+    try:
+        # Buscar dados do post
+        post_url = f"{WP_URL}/wp-json/wp/v2/posts/{post_id}"
+        response = requests.get(post_url, headers=HEADERS_WP, timeout=15)
         
-        time.sleep(10)  # Verifica a fila a cada 10 segundos
-
-# 🚀 INICIAR PROCESSAMENTO EM BACKGROUND
-threading.Thread(target=processar_fila, daemon=True).start()
-logger.info("🔄 Processamento em background INICIADO!")
+        if response.status_code != 200:
+            logger.error("❌ Erro ao buscar post")
+            return None
+            
+        post_data = response.json()
+        
+        # Tentar obter featured_media (imagem de destaque)
+        featured_media_id = post_data.get('featured_media')
+        if featured_media_id:
+            media_url = f"{WP_URL}/wp-json/wp/v2/media/{featured_media_id}"
+            media_response = requests.get(media_url, headers=HEADERS_WP, timeout=15)
+            
+            if media_response.status_code == 200:
+                media_data = media_response.json()
+                return media_data.get('source_url')
+        
+        # Se não encontrar, tentar extrair imagem do conteúdo
+        content = post_data.get('content', {}).get('rendered', '')
+        if 'wp-image-' in content:
+            # Extrair URL da imagem do conteúdo HTML
+            import re
+            image_match = re.search(r'src="([^"]+\.(jpg|jpeg|png))"', content)
+            if image_match:
+                return image_match.group(1)
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"💥 Erro ao buscar imagem original: {str(e)}")
+        return None
 
 @app.route('/webhook-boca', methods=['POST'])
 def handle_webhook():
@@ -154,21 +138,60 @@ def handle_webhook():
         if not post_id:
             return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
-        # 📝 Extrair dados para a fila
-        titulo = data.get('post', {}).get('post_title', '')
-        resumo = data.get('post', {}).get('post_excerpt', '')
+        # 🖼️ PRIMEIRO: Tentar imagem post_social (se existir)
+        imagem_post_social = f"{WP_URL}/wp-content/uploads/post_social_{post_id}.jpg"
         
-        # 📋 ADICIONAR À FILA para processamento em background
-        fila_processamento.append((post_id, titulo, resumo))
-        logger.info(f"📥 Adicionado à fila: post_id {post_id} (fila: {len(fila_processamento)})")
+        try:
+            response = requests.head(imagem_post_social, timeout=5)
+            if response.status_code == 200:
+                logger.info(f"✅ Usando imagem post_social: {post_id}")
+                imagem_url = imagem_post_social
+            else:
+                # 🖼️ SEGUNDA OPÇÃO: Buscar imagem ORIGINAL
+                logger.info(f"🔍 Imagem post_social não encontrada, buscando original...")
+                imagem_url = obter_imagem_original(post_id)
+                
+                if not imagem_url:
+                    return jsonify({
+                        "status": "error", 
+                        "message": "Nenhuma imagem encontrada para a notícia"
+                    }), 404
+                    
+        except:
+            # 🖼️ SEGUNDA OPÇÃO: Buscar imagem ORIGINAL
+            logger.info(f"🔍 Erro ao acessar post_social, buscando original...")
+            imagem_url = obter_imagem_original(post_id)
+            
+            if not imagem_url:
+                return jsonify({
+                    "status": "error", 
+                    "message": "Nenhuma imagem encontrada para a notícia"
+                }), 404
         
-        # ⚡ RETORNAR RESPOSTA RÁPIDA (evita timeout)
-        return jsonify({
-            "status": "success",
-            "message": "Webhook recebido - Processamento em background",
-            "post_id": post_id,
-            "queue_size": len(fila_processamento)
-        })
+        # 📝 Dados para publicação
+        titulo = data.get('post', {}).get('post_title', 'Título da notícia')
+        resumo = data.get('post', {}).get('post_excerpt', 'Resumo da notícia')
+        titulo = limpar_html(titulo)
+        resumo = limpar_html(resumo)
+        
+        legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa!\n\n#noticias #litoralnorte"
+        
+        # 🚀 PUBLICAR
+        resultado = publicar_no_instagram(imagem_url, legenda)
+        
+        if resultado.get('status') == 'success':
+            return jsonify({
+                "status": "success",
+                "message": "Publicação no Instagram realizada",
+                "instagram_id": resultado.get('id'),
+                "imagem_utilizada": imagem_url
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Erro na publicação",
+                "erro": resultado
+            }), 500
         
     except Exception as e:
         logger.error(f"💥 Erro no webhook: {str(e)}")
@@ -182,24 +205,11 @@ def index():
     return f"""
     <h1>🔧 Status do Sistema Boca no Trombone</h1>
     <p><b>Instagram:</b> {instagram_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>Fila de processamento:</b> {len(fila_processamento)} itens</p>
-    <p><b>Modo:</b> Processamento em background 24/7</p>
+    <p><b>Estratégia:</b> Usa post_social OU imagem original</p>
     <p><b>Endpoint:</b> <code>/webhook-boca</code></p>
-    <p><b>Health Check:</b> <a href="/health">/health</a></p>
     """
-
-@app.route('/health')
-def health_check():
-    """Health check para manter o sistema acordado"""
-    return jsonify({
-        "status": "active", 
-        "service": "boca-no-trombone",
-        "timestamp": time.time(),
-        "queue_size": len(fila_processamento),
-        "instagram_configured": bool(INSTAGRAM_ACCESS_TOKEN)
-    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    logger.info("🚀 Sistema 24x7 com background processing INICIADO!")
+    logger.info("🚀 Sistema de automação INICIADO!")
     app.run(host='0.0.0.0', port=port, debug=False)
