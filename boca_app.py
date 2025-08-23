@@ -24,7 +24,7 @@ import cloudinary.uploader
 load_dotenv()
 app = Flask(__name__)
 
-print("🚀 INICIANDO AUTOMAÇÃO DE REELS v1.1 (Nomenclatura Corrigida)")
+print("🚀 INICIANDO AUTOMAÇÃO DE REELS v1.2 (FINAL - SEM ÁUDIO)")
 
 # Configs do WordPress
 WP_URL = os.getenv('WP_URL')
@@ -39,8 +39,7 @@ else:
     print("❌ [ERRO DE CONFIG] Faltando variáveis de ambiente do WordPress.")
     HEADERS_WP = {}
 
-# --- CORREÇÃO DE NOMENCLATURA APLICADA AQUI ---
-# O código agora busca por 'PAGE_TOKEN_BOCA', conforme seu print.
+# Configs da API do Meta (Facebook/Instagram)
 META_API_TOKEN = os.getenv('PAGE_TOKEN_BOCA')
 INSTAGRAM_ID = os.getenv('INSTAGRAM_ID')
 FACEBOOK_PAGE_ID = os.getenv('FACEBOOK_PAGE_ID')
@@ -112,25 +111,30 @@ def criar_imagem_reel(url_imagem_noticia, titulo_post, categoria):
         return None
 
 def criar_video_com_ffmpeg(bytes_imagem):
-    print("🎥 [ETAPA 2/5] Criando vídeo com FFmpeg...")
+    print("🎥 [ETAPA 2/5] Criando vídeo com FFmpeg (SEM ÁUDIO)...")
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_image:
             tmp_image.write(bytes_imagem)
             tmp_image_path = tmp_image.name
 
         tmp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-        audio_path = "audio_fundo.mp3"
-
+        
+        # --- COMANDO FFmpeg SIMPLIFICADO - SEM ÁUDIO ---
         comando = [
-            'ffmpeg', '-loop', '1', '-i', tmp_image_path,
-            '-i', audio_path, '-c:v', 'libx264', '-t', '10',
-            '-pix_fmt', 'yuv420p', '-vf', 'scale=1080:1920',
-            '-shortest', '-y', tmp_video_path
+            'ffmpeg',
+            '-loop', '1',
+            '-i', tmp_image_path,
+            '-c:v', 'libx264',
+            '-t', '10', # Duração do vídeo
+            '-pix_fmt', 'yuv420p',
+            '-vf', 'scale=1080:1920',
+            '-y',
+            tmp_video_path
         ]
         
         subprocess.run(comando, check=True, capture_output=True, text=True)
         
-        print(f"✅ [ETAPA 2/5] Vídeo criado com sucesso em: {tmp_video_path}")
+        print(f"✅ [ETAPA 2/5] Vídeo (sem som) criado com sucesso em: {tmp_video_path}")
         return tmp_video_path
 
     except subprocess.CalledProcessError as e:
