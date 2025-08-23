@@ -2,23 +2,28 @@
 # exit on error
 set -o errexit
 
-echo "Iniciando processo de build..."
+echo "--- Iniciando processo de build robusto ---"
 
-# 1. Instalação do Google Chrome e suas dependências
-echo "Instalando Google Chrome..."
-apt-get update && apt-get install -y wget gnupg
-wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg
-sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+# 1. Instalação do Google Chrome (Método Direto e Forçado)
+echo "--> Instalando dependências essenciais..."
 apt-get update
-apt-get install -y google-chrome-stable
-echo "Google Chrome instalado com sucesso."
+apt-get install -y wget gnupg libnss3 libgconf-2-4 libfontconfig1
 
-# 2. Instalação do FFmpeg (se ainda não estiver instalado por outro método)
-echo "Instalando FFmpeg..."
+echo "--> Baixando o pacote oficial do Google Chrome..."
+wget -q -O chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+echo "--> Forçando a instalação do pacote .deb..."
+dpkg -i chrome.deb || apt-get -fy install
+
+echo "--> Google Chrome instalado com sucesso em: $(which google-chrome-stable)"
+
+# 2. Instalação do FFmpeg
+echo "--> Instalando FFmpeg..."
 apt-get install -y ffmpeg
-echo "FFmpeg instalado com sucesso."
+echo "--> FFmpeg instalado com sucesso."
 
 # 3. Instalação das dependências Python
-echo "Instalando pacotes Python..."
+echo "--> Instalando pacotes Python..."
 pip install -r requirements.txt
-echo "Build finalizado."
+
+echo "--- Build finalizado com sucesso! ---"
