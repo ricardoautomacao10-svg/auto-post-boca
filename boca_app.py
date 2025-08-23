@@ -9,8 +9,9 @@ import subprocess
 from base64 import b64encode
 import tempfile
 import shutil
+import traceback
 
-# -- Importações para a Geração do Vídeo (agora usando requests e jinja2) --
+# -- Importações para a Geração do Vídeo --
 from jinja2 import Environment, FileSystemLoader
 
 # Configurar logging
@@ -84,7 +85,7 @@ def obter_imagem_original(post_id):
 
 def criar_reel_video(url_imagem, titulo, hashtags, categoria):
     """
-    Cria um vídeo a partir de um template HTML, usando uma API externa de screenshot.
+    Cria um vídeo a partir de um template HTML, usando uma API externa de screenshot. (Versão Corrigida)
     """
     logger.info("🎬 Iniciando a criação do vídeo (método API)...")
     
@@ -108,26 +109,25 @@ def criar_reel_video(url_imagem, titulo, hashtags, categoria):
             logger.info("📲 Chamando a API de screenshot...")
             screenshot_path = os.path.join(tmpdir, "frame.png")
             
-            response = requests.post('https://shot.screenshotapi.net/screenshot',
-                json={
-                    'token': SCREENSHOT_API_KEY,
-                    'html': html_content,
-                    'width': 1080,
-                    'height': 1920,
-                    'output': 'image',
-                    'file_type': 'png',
-                    'wait_for_event': 'load'
-                },
-                stream=True
-            )
+            api_payload = {
+                'token': SCREENSHOT_API_KEY,
+                'html': html_content,
+                'width': 1080,
+                'height': 1920,
+                'output': 'image',
+                'file_type': 'png',
+                'wait_for_event': 'load'
+            }
+
+            response = requests.post('https://shot.screenshotapi.net/screenshot', json=api_payload)
 
             if response.status_code == 200:
                 with open(screenshot_path, 'wb') as f:
-                    for chunk in response.iter_content(1024):
-                        f.write(chunk)
+                    f.write(response.content)
                 logger.info("🖼️ Imagem recebida da API com sucesso.")
             else:
-                logger.error(f"❌ Erro na API de screenshot: {response.status_code} {response.text}")
+                error_data = response.json()
+                logger.error(f"❌ Erro na API de screenshot: {response.status_code} {error_data}")
                 return None
 
             # 3. Gerar o vídeo com FFmpeg a partir da imagem recebida
@@ -138,7 +138,7 @@ def criar_reel_video(url_imagem, titulo, hashtags, categoria):
             comando_ffmpeg = [
                 'ffmpeg', '-loop', '1', '-i', screenshot_path,
                 '-i', audio_path, '-c:v', 'libx264', '-t', '10',
-                '-pix_fmt', 'yuv420p', '-vf', 'scale=1080:1920,fps=30',
+                '-pix_fmt', 'yuv4p20', '-vf', 'scale=1080:1920,fps=30',
                 '-y', output_video_path
             ]
             
@@ -158,7 +158,6 @@ def criar_reel_video(url_imagem, titulo, hashtags, categoria):
             return None
         except Exception as e:
             logger.error(f"💥 Erro na criação do vídeo: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return None
 
@@ -259,69 +258,50 @@ def handle_webhook():
         if not post_id:
             return jsonify({"status": "error", "message": "❌ post_id não encontrado"}), 400
         
-        # 🖼️ Buscando a imagem original
         imagem_url = obter_imagem_original(post_id)
         if not imagem_url:
-            return jsonify({
-                "status": "error", 
-                "message": "Nenhuma imagem encontrada para a notícia"
-            }), 404
+            return jsonify({"status": "error", "message": "Nenhuma imagem encontrada para a notícia"}), 404
 
-        # 📝 Dados para publicação
         titulo = limpar_html(data.get('post', {}).get('post_title', 'Título da notícia'))
         resumo = limpar_html(data.get('post', {}).get('post_excerpt', 'Resumo da notícia'))
         
         categoria = "Notícias"
-        if 'post' in data and 'terms' in data['post'] and 'category' in data['post']['terms']:
-            terms = data['post']['terms']['category']
-            if terms:
-                categoria = terms[0]['name']
+        try:
+            if 'post' in data and 'terms' in data['post'] and 'category' in data['post']['terms']:
+                terms = data['post']['terms']['category']
+                if terms:
+                    categoria = terms[0]['name']
+        except KeyError:
+            logger.warning("Estrutura de 'terms' não encontrada no webhook. Usando categoria padrão.")
+            categoria = "Notícias"
 
         hashtags = f"#{categoria.replace(' ', '')} #litoralnorte"
         legenda = f"{titulo}\n\n{resumo}\n\nLeia a matéria completa!\n\n{hashtags}"
         
-        # 🎬 GERAR O VÍDEO
         caminho_video_temporario = criar_reel_video(imagem_url, titulo, hashtags, categoria)
 
         if caminho_video_temporario:
-            logger.info("✅ Vídeo criado com sucesso. Próximo passo: publicação.")
+            logger.info("✅ Vídeo criado. Próximo passo: publicação.")
             
             # --- ATENÇÃO ---
-            # Aqui você precisa da sua lógica para fazer upload do vídeo
-            # para um serviço público (Cloudinary, S3, etc.) e obter a URL.
-            # video_url_publica = fazer_upload_para_cloudinary(caminho_video_temporario)
+            # Aqui você precisa da sua lógica para fazer upload do vídeo para um serviço
+            # público (Cloudinary, S3, etc.) e obter a URL.
+            # video_url_publica = fazer_upload_para_cloudinary(caminho_video_temporario).get('url')
             # Para o exemplo, vamos usar uma URL placeholder:
             video_url_publica = 'URL_DO_VIDEO_PUBLICO_AQUI'
 
             if not video_url_publica or video_url_publica == 'URL_DO_VIDEO_PUBLICO_AQUI':
-                 return jsonify({
-                    "status": "error", 
-                    "message": "❌ URL do vídeo pública não foi gerada. Verifique a função de upload."
-                }), 500
+                 return jsonify({"status": "error", "message": "❌ URL do vídeo pública não foi gerada. Verifique a função de upload."}), 500
 
-            # --- Dispara as publicações ---
             resultados = {}
-            
-            # 1. Publicar no Instagram
             resultado_instagram = publicar_video_no_instagram(video_url_publica, legenda)
             resultados['instagram'] = resultado_instagram
-
-            # 2. Publicar no Facebook
             resultado_facebook = publicar_reel_no_facebook(video_url_publica, legenda)
             resultados['facebook'] = resultado_facebook
             
-            # Resposta final
-            return jsonify({
-                "status": "success",
-                "message": "Processo de publicação finalizado.",
-                "resultados": resultados
-            })
-            
+            return jsonify({"status": "success", "message": "Processo de publicação finalizado.", "resultados": resultados})
         else:
-            return jsonify({
-                "status": "error", 
-                "message": "❌ Falha na criação do vídeo"
-            }), 500
+            return jsonify({"status": "error", "message": "❌ Falha na criação do vídeo"}), 500
             
     except Exception as e:
         logger.error(f"💥 Erro no webhook: {str(e)}")
@@ -334,7 +314,7 @@ def index():
     return f"""
     <h1>🔧 Status do Sistema Boca no Trombone</h1>
     <p><b>Instagram:</b> {instagram_ok and '✅ Configurado' or '❌ Não configurado'}</p>
-    <p><b>Estratégia:</b> Recebe imagem, gera vídeo e publica como Reel</p>
+    <p><b>Estratégia:</b> Recebe imagem, gera vídeo via API e publica como Reel</p>
     <p><b>Endpoint:</b> <code>/webhook-boca</code></p>
     """
 
